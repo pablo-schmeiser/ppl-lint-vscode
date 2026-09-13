@@ -1,0 +1,56 @@
+name: Bug Report
+description: File a bug report for PPL VSCode Linter
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code Version
+      placeholder: e.g. 1.88.0
+    validations:
+      required: true
+  - type: input
+    id: ext-version
+    attributes:
+      label: Extension Version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: host-format
+    attributes:
+      label: File Format / Mode
+      options:
+        - Standalone PPL (.ppl, .pplquery)
+        - YAML Embedded
+        - TOML Embedded
+        - JSON Embedded
+    validations:
+      required: true
+  - type: textarea
+    id: ppl-query
+    attributes:
+      label: Raw PPL Snippet or File Content
+      description: Provide the query or configuration that produced the issue.
+      render: ppl
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? (Include error messages, diagnostics, or screenshots)
+    validations:
+      required: true

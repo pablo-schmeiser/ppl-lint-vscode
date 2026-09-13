@@ -1,0 +1,13 @@
+detectors:
+  primary:
+    name: Primary Web Traffic
+    query: |
+      source=web_logs
+      | where status == 200
+      | stats count() by client_ip
+  secondary:
+    name: Database Latency
+    query: |
+      source=db_metrics
+      | where latency_ms > 1000
+      | stats avg(latency_ms) by db_instance

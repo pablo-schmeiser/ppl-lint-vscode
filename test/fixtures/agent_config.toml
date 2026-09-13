@@ -1,0 +1,21 @@
+[api]
+enabled = true
+port = 8686
+
+[sources.app_in]
+type = "file"
+include = ["/var/log/app/*.log"]
+
+[transforms.filter_logs]
+type = "filter"
+inputs = ["app_in"]
+query = """
+source=app_logs
+| where level == 'ERROR' OR response_code >= 500
+| fields timestamp, host, message
+"""
+
+[sinks.opensearch]
+type = "elasticsearch"
+inputs = ["filter_logs"]
+endpoint = "https://opensearch-cluster:9200"

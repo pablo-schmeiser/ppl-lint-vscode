@@ -1,0 +1,4 @@
+source = accounts
+| where (age > 30 AND balance = 1000.0
+| stat count() by state
+|

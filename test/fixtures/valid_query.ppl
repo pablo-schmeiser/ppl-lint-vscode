@@ -1,0 +1,7 @@
+source = accounts
+| where age > 30 AND balance >= 1000.0
+| fields + account_number, firstname, lastname, balance, state
+| eval status_tier = if(balance > 50000, 'VIP', 'Standard')
+| stats count(), avg(balance) by state, status_tier
+| dedup 1 state
+| sort - count

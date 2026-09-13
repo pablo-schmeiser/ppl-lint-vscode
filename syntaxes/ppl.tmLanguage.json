@@ -1,0 +1,113 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PPL",
+  "scopeName": "source.ppl",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#backtick_identifiers" },
+    { "include": "#keywords" },
+    { "include": "#pipe_operator" },
+    { "include": "#functions" },
+    { "include": "#operators" },
+    { "include": "#constants" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ppl",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.ppl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.ppl",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.ppl",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.ppl",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.ppl",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "backtick_identifiers": {
+      "name": "variable.other.quoted.ppl",
+      "begin": "`",
+      "end": "`"
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ppl",
+          "match": "(?i)\\b(source|search|where|stats|fields|eval|sort|rename|dedup|head|top|rare|grok|patterns|by|as)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.ppl",
+          "match": "(?i)\\b(and|or|not|in|like|isnull|isnotnull)\\b"
+        }
+      ]
+    },
+    "pipe_operator": {
+      "name": "keyword.operator.pipe.ppl",
+      "match": "\\|"
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.ppl",
+          "match": "(?i)\\b(count|avg|sum|min|max|var_pop|var_samp|stddev_pop|stddev_samp|percentile|abs|ceil|ceiling|floor|round|sqrt|cbrt|exp|ln|log|log10|log2|pow|power|lower|upper|trim|ltrim|rtrim|concat|concat_ws|length|substr|substring|replace|regexp_extract|now|current_timestamp|date_format|date_add|date_sub|year|month|day|hour|minute|second|if|case|coalesce|isnull|isnotnull|nullif|md5|sha1|sha256|cast|typeof)\\b(?=\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.ppl",
+          "match": "(==|!=|<>|<=|>=|<|>|=)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.ppl",
+          "match": "(\\+|\\-|\\*|\\/|%)"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.ppl",
+          "match": "(?i)\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.ppl",
+          "match": "(?i)\\bnull\\b"
+        },
+        {
+          "name": "constant.numeric.ppl",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        }
+      ]
+    }
+  }
+}

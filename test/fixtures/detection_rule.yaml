@@ -1,0 +1,12 @@
+id: alert_high_error_rate
+title: High 5xx HTTP Error Rate
+description: Detects sustained HTTP error surges above threshold
+severity: high
+trigger:
+  schedule: "*/5 * * * *"
+  condition:
+    query: |
+      source=http_access_logs
+      | where status >= 500
+      | stats count() by host
+      | where count > 50

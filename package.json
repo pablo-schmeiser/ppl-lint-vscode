@@ -1,0 +1,336 @@
+{
+  "name": "ppl-lint-vscode",
+  "displayName": "PPL Linter (Piped Processing Language)",
+  "version": "0.1.0",
+  "description": "Visual Studio Code extension for linting Piped Processing Language (PPL) in standalone files and embedded within YAML, TOML, and JSON configurations.",
+  "publisher": "pablo-schmeiser",
+  "license": "Apache-2.0",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pablo-schmeiser/ppl-lint-vscode.git"
+  },
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ppl",
+    "opensearch",
+    "piped processing language",
+    "linter",
+    "yaml",
+    "toml",
+    "json"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.ppl",
+    "workspaceContains:**/*.yaml",
+    "workspaceContains:**/*.yml",
+    "workspaceContains:**/*.toml"
+  ],
+  "scripts": {
+    "build": "node esbuild.config.mjs --production",
+    "watch": "node esbuild.config.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext ts",
+    "compile": "tsc -p ./ --noEmit",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "ppl",
+        "aliases": [
+          "PPL",
+          "ppl"
+        ],
+        "extensions": [
+          ".ppl",
+          ".pplquery",
+          ".query"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ppl",
+        "scopeName": "source.ppl",
+        "path": "./syntaxes/ppl.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "pplLinter.lintCurrentFile",
+        "title": "PPL: Lint Current File",
+        "category": "PPL"
+      },
+      {
+        "command": "pplLinter.toggleEnabled",
+        "title": "PPL: Toggle Linting Enabled",
+        "category": "PPL"
+      }
+    ],
+    "configuration": {
+      "title": "PPL Linter",
+      "properties": {
+        "pplLinter.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable PPL linting globally."
+        },
+        "pplLinter.standalone": {
+          "type": "object",
+          "description": "Settings for standalone PPL files.",
+          "default": {
+            "fileExtensions": [
+              ".ppl",
+              ".pplquery",
+              ".query"
+            ],
+            "languageIds": [
+              "ppl"
+            ]
+          },
+          "properties": {
+            "fileExtensions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                ".ppl",
+                ".pplquery",
+                ".query"
+              ],
+              "description": "File extensions treated directly as standalone PPL."
+            },
+            "languageIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "ppl"
+              ],
+              "description": "VSCode language identifiers to lint as PPL."
+            }
+          }
+        },
+        "pplLinter.embedded": {
+          "type": "array",
+          "description": "Rules for extracting and linting PPL queries inside structured documents.",
+          "default": [
+            {
+              "id": "yaml-detection-rules",
+              "filePattern": "**/*.{yaml,yml}",
+              "format": "yaml",
+              "keyPatterns": [
+                "query",
+                "ppl",
+                "ppl_query",
+                "rule.query",
+                "detection.condition",
+                "*.query",
+                "detectors.*.query",
+                "alerts.*.condition.ppl"
+              ],
+              "heuristicDetection": true
+            },
+            {
+              "id": "toml-agent-configs",
+              "filePattern": "**/*.toml",
+              "format": "toml",
+              "keyPatterns": [
+                "query",
+                "ppl",
+                "*.query",
+                "transforms.*.query"
+              ],
+              "heuristicDetection": true
+            },
+            {
+              "id": "json-dashboards",
+              "filePattern": "**/*.json",
+              "format": "json",
+              "keyPatterns": [
+                "ppl",
+                "query",
+                "ppl_query"
+              ],
+              "heuristicDetection": false
+            }
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "filePattern",
+              "format",
+              "keyPatterns"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique identifier for this embedded rule."
+              },
+              "filePattern": {
+                "type": "string",
+                "description": "Glob pattern matching host files."
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "yaml",
+                  "toml",
+                  "json"
+                ],
+                "description": "Format parser to use for extracting queries."
+              },
+              "keyPatterns": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Key paths (dot-delimited, wildcard `*`) containing PPL."
+              },
+              "heuristicDetection": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, inspects string values matching regex /^\\s*(source|search)\\s*=/i even if keys are not explicitly listed."
+              }
+            }
+          }
+        },
+        "pplLinter.rules": {
+          "type": "object",
+          "description": "Configurable severity levels for specific linter rules ('error', 'warning', 'info', 'off').",
+          "default": {
+            "PPL001": "error",
+            "PPL002": "error",
+            "PPL003": "error",
+            "PPL004": "error",
+            "PPL005": "warning",
+            "PPL006": "warning",
+            "PPL007": "warning"
+          },
+          "properties": {
+            "PPL001": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL001: Syntax Error"
+            },
+            "PPL002": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL002: Missing Source Stage"
+            },
+            "PPL003": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL003: Unknown Command"
+            },
+            "PPL004": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL004: Invalid Arguments"
+            },
+            "PPL005": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "warning",
+              "description": "PPL005: Unknown Function"
+            },
+            "PPL006": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "warning",
+              "description": "PPL006: Late Filter Performance Warning"
+            },
+            "PPL007": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "warning",
+              "description": "PPL007: Assignment In Boolean Condition"
+            }
+          }
+        },
+        "pplLinter.lintOnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lint on typing with debouncing. If false, lints only on save."
+        },
+        "pplLinter.debounceMs": {
+          "type": "integer",
+          "default": 350,
+          "description": "Debounce delay in milliseconds for linting on document modification."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1",
+    "minimatch": "^10.2.6",
+    "smol-toml": "^1.8.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "@vitest/coverage-v8": "^5.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "prettier": "^3.9.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}

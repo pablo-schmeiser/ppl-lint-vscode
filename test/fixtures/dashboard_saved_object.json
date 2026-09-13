@@ -1,0 +1,12 @@
+{
+  "id": "saved-search-error-spike",
+  "type": "search",
+  "attributes": {
+    "title": "Application Error Spikes",
+    "description": "Monitors 5xx HTTP response codes in application microservices",
+    "query": "source=microservice_logs | where status >= 500 | stats count() by service_name",
+    "kibanaSavedObjectMeta": {
+      "searchSourceJSON": "{\"highlightAll\":true,\"version\":true,\"query\":{\"language\":\"ppl\",\"query\":\"source=microservice_logs | where status >= 500 | stats count() by service_name\"}}"
+    }
+  }
+}

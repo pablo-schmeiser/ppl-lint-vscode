@@ -1,0 +1,29 @@
+name: Feature Request
+description: Suggest an idea or new lint rule for PPL VSCode Linter
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve the PPL Linter!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Description
+      description: Is your feature request related to a problem or specific analytical workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / Rule
+      description: Describe what you would like to happen (e.g. a new rule PPL008, a new command hover, support for a new host file format).
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example PPL Queries or Configs
+      description: Provide sample queries illustrating this feature.
+      render: ppl

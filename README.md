@@ -1,6 +1,8 @@
 # PPL Linter for Visual Studio Code
 
 [![CI Status](https://github.com/pablo-schmeiser/ppl-lint-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/pablo-schmeiser/ppl-lint-vscode/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/pablo-schmeiser/ppl-lint-vscode/ci.yml?branch=main&label=tests)](https://github.com/pablo-schmeiser/ppl-lint-vscode/actions/workflows/ci.yml)
+[![Build](https://img.shields.io/github/actions/workflow/status/pablo-schmeiser/ppl-lint-vscode/ci.yml?branch=main&label=build)](https://github.com/pablo-schmeiser/ppl-lint-vscode/actions/workflows/ci.yml)
 [![Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/pablo-schmeiser.ppl-lint-vscode?color=blue&label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=pablo-schmeiser.ppl-lint-vscode)
 [![Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/pablo-schmeiser.ppl-lint-vscode)](https://marketplace.visualstudio.com/items?itemName=pablo-schmeiser.ppl-lint-vscode)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -106,6 +108,15 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
       "heuristicDetection": false
     }
   ],
+
+  // Custom user-defined pipe commands & functions
+  "pplLinter.customCommands": ["trendline", "lookup"],
+  "pplLinter.customFunctions": ["custom_scoring", "udf_hash"],
+
+  // User-defined extractor key patterns (additive, exclusion, and replacement)
+  "pplLinter.additionalKeyPatterns": ["sigma.*.condition", "custom_query"],
+  "pplLinter.excludeKeyPatterns": ["unwanted_query"],
+  "pplLinter.overrideDefaultKeyPatterns": false,
 
   // Rule severity overrides ('error', 'warning', 'info', 'off')
   "pplLinter.rules": {

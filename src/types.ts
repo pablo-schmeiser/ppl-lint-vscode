@@ -221,6 +221,9 @@ export interface CoreDiagnostic {
 export interface RuleContext {
   report(diagnostic: CoreDiagnostic): void;
   getSeverity(ruleId: string): DiagnosticSeverity;
+  getCustomCommands?(): string[];
+  getCustomFunctions?(): string[];
+  readonly options?: PplLinterOptions;
 }
 
 export interface LintRule {
@@ -233,6 +236,8 @@ export interface LintRule {
 
 export interface PplLinterOptions {
   rules?: Record<string, DiagnosticSeverity>;
+  customCommands?: string[];
+  customFunctions?: string[];
 }
 
 // ==========================================
@@ -289,6 +294,11 @@ export interface PplLinterConfig {
   enabled: boolean;
   standalone: StandaloneConfig;
   embedded: EmbeddedRuleConfig[];
+  customCommands: string[];
+  customFunctions: string[];
+  additionalKeyPatterns: string[];
+  excludeKeyPatterns: string[];
+  overrideDefaultKeyPatterns: boolean;
   rules: Record<string, DiagnosticSeverity>;
   lintOnType: boolean;
   debounceMs: number;

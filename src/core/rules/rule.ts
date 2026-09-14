@@ -58,7 +58,15 @@ export function findClosestMatch(
 export class DefaultRuleContext implements RuleContext {
   public readonly diagnostics: CoreDiagnostic[] = [];
 
-  constructor(private readonly options: PplLinterOptions = {}) {}
+  constructor(public readonly options: PplLinterOptions = {}) {}
+
+  public getCustomCommands(): string[] {
+    return this.options.customCommands || [];
+  }
+
+  public getCustomFunctions(): string[] {
+    return this.options.customFunctions || [];
+  }
 
   public getSeverity(ruleId: string): DiagnosticSeverity {
     if (this.options.rules?.[ruleId] !== undefined) {

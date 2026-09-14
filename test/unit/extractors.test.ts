@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractQueries } from '../../src/extractors/extractor';
+import { extractQueries, resolveKeyPatterns } from '../../src/extractors/extractor';
 import { LineOffsetSourceMap } from '../../src/extractors/sourcemap';
 import { Span } from '../../src/types';
 
@@ -160,3 +160,68 @@ query2 = "source=audit | stats count()"
     expect(queries[1].rawText).toBe('source=events | where code == 200');
   });
 });
+
+describe('User-Defined Key Pattern Resolution', () => {
+  const defaultPatterns = ['query', 'ppl', 'rule.query', '*.query'];
+
+  it('extends default key patterns when additionalKeyPatterns are provided', () => {
+    const resolved = resolveKeyPatterns(defaultPatterns, {
+      additional: ['custom_ppl', 'sigma.*.condition'],
+    });
+
+    expect(resolved).toContain('query');
+    expect(resolved).toContain('custom_ppl');
+    expect(resolved).toContain('sigma.*.condition');
+    expect(resolved).toHaveLength(6);
+  });
+
+  it('excludes specific patterns via excludeKeyPatterns', () => {
+    const resolved = resolveKeyPatterns(defaultPatterns, {
+      exclude: ['ppl', '*.query'],
+    });
+
+    expect(resolved).toContain('query');
+    expect(resolved).toContain('rule.query');
+    expect(resolved).not.toContain('ppl');
+    expect(resolved).not.toContain('*.query');
+  });
+
+  it('excludes specific patterns via inline !pattern negation', () => {
+    const resolved = resolveKeyPatterns(defaultPatterns, {
+      additional: ['my_query', '!query', '!rule.query'],
+    });
+
+    expect(resolved).toContain('my_query');
+    expect(resolved).toContain('ppl');
+    expect(resolved).not.toContain('query');
+    expect(resolved).not.toContain('rule.query');
+  });
+
+  it('replaces all defaults when overrideDefaults is true', () => {
+    const resolved = resolveKeyPatterns(defaultPatterns, {
+      overrideDefaults: true,
+      additional: ['only_this_key'],
+    });
+
+    expect(resolved).toEqual(['only_this_key']);
+  });
+
+  it('extracts queries with resolved key patterns in structured documents', () => {
+    const yaml = `
+custom_key: "source=logs | where code == 200"
+default_query: "source=legacy | stats count()"
+`;
+
+    // With defaults overridden: only custom_key should be extracted
+    const effectivePatterns = resolveKeyPatterns(['default_query'], {
+      overrideDefaults: true,
+      additional: ['custom_key'],
+    });
+
+    const queries = extractQueries(yaml, 'yaml', effectivePatterns, false);
+    expect(queries).toHaveLength(1);
+    expect(queries[0].keyPath).toBe('custom_key');
+    expect(queries[0].rawText).toBe('source=logs | where code == 200');
+  });
+});
+

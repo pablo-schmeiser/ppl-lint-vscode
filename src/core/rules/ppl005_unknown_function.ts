@@ -9,81 +9,11 @@ import {
   UnaryExpressionNode,
   WhereStageNode,
 } from '../../types';
+import {
+  DEFAULT_KNOWN_FUNCTIONS,
+  DEFAULT_KNOWN_FUNCTIONS_SET,
+} from '../catalog/functions';
 import { findClosestMatch } from './rule';
-
-const KNOWN_FUNCTIONS = new Set([
-  // Aggregations
-  'count',
-  'avg',
-  'sum',
-  'min',
-  'max',
-  'var_pop',
-  'var_samp',
-  'stddev_pop',
-  'stddev_samp',
-  'percentile',
-
-  // Math
-  'abs',
-  'ceil',
-  'ceiling',
-  'floor',
-  'round',
-  'sqrt',
-  'cbrt',
-  'exp',
-  'ln',
-  'log',
-  'log10',
-  'log2',
-  'pow',
-  'power',
-
-  // String
-  'lower',
-  'upper',
-  'trim',
-  'ltrim',
-  'rtrim',
-  'concat',
-  'concat_ws',
-  'length',
-  'substr',
-  'substring',
-  'replace',
-  'regexp_extract',
-
-  // Date/Time
-  'now',
-  'current_timestamp',
-  'date_format',
-  'date_add',
-  'date_sub',
-  'year',
-  'month',
-  'day',
-  'hour',
-  'minute',
-  'second',
-
-  // Conditional / Null
-  'if',
-  'case',
-  'coalesce',
-  'isnull',
-  'isnotnull',
-  'nullif',
-
-  // Type & Crypto
-  'md5',
-  'sha1',
-  'sha256',
-  'cast',
-  'typeof',
-]);
-
-const KNOWN_FUNCTIONS_LIST = Array.from(KNOWN_FUNCTIONS);
 
 export const PPL005_UnknownFunction: LintRule = {
   id: 'PPL005',
@@ -91,14 +21,24 @@ export const PPL005_UnknownFunction: LintRule = {
   description: 'Flags unknown function names in expressions and aggregations.',
   defaultSeverity: 'warning',
   check(ast: PipelineNode, context: RuleContext): void {
+    const customFunctions = (context.getCustomFunctions?.() || []).map((f) => f.toLowerCase());
+    const knownSet =
+      customFunctions.length > 0
+        ? new Set([...DEFAULT_KNOWN_FUNCTIONS, ...customFunctions])
+        : DEFAULT_KNOWN_FUNCTIONS_SET;
+    const knownList =
+      customFunctions.length > 0
+        ? Array.from(knownSet)
+        : (DEFAULT_KNOWN_FUNCTIONS as string[]);
+
     function inspectExpression(expr: ExpressionNode | undefined): void {
       if (!expr) return;
 
       if (expr.type === 'FunctionCall') {
         const func = expr as FunctionCallNode;
         const name = func.functionName.toLowerCase();
-        if (!KNOWN_FUNCTIONS.has(name)) {
-          const suggestion = findClosestMatch(name, KNOWN_FUNCTIONS_LIST, 3);
+        if (!knownSet.has(name)) {
+          const suggestion = findClosestMatch(name, knownList, 3);
           const message = suggestion
             ? `Unknown function '${func.functionName}'. Did you mean '${suggestion}'?`
             : `Unknown function '${func.functionName}'.`;

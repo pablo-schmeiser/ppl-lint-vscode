@@ -126,4 +126,49 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(ppl006).toBeDefined();
     expect(ppl006?.severity).toBe('info');
   });
+
+  it('PPL003: supports user-defined customCommands and typo matching', () => {
+    const query = 'source=logs | trendline count()';
+    const defaultDiags = linter.lint(query);
+    const defaultPpl003 = defaultDiags.find((d) => d.code === 'PPL003');
+    expect(defaultPpl003).toBeDefined();
+    expect(defaultPpl003?.message).toContain("Unknown command 'trendline'");
+
+    const customLinter = new PplLinter({
+      customCommands: ['trendline', 'lookup'],
+    });
+    const customDiags = customLinter.lint(query);
+    expect(customDiags.some((d) => d.code === 'PPL003')).toBe(false);
+
+    // Typo matching with custom command
+    const typoQuery = 'source=logs | trendlin count()';
+    const typoDiags = customLinter.lint(typoQuery);
+    const typoPpl003 = typoDiags.find((d) => d.code === 'PPL003');
+    expect(typoPpl003).toBeDefined();
+    expect(typoPpl003?.message).toContain("Did you mean 'trendline'?");
+    expect(typoPpl003?.data?.suggestion).toBe('trendline');
+  });
+
+  it('PPL005: supports user-defined customFunctions and typo matching', () => {
+    const query = 'source=logs | stats custom_score(bytes)';
+    const defaultDiags = linter.lint(query);
+    const defaultPpl005 = defaultDiags.find((d) => d.code === 'PPL005');
+    expect(defaultPpl005).toBeDefined();
+    expect(defaultPpl005?.message).toContain("Unknown function 'custom_score'");
+
+    const customLinter = new PplLinter({
+      customFunctions: ['custom_score', 'udf_hash'],
+    });
+    const customDiags = customLinter.lint(query);
+    expect(customDiags.some((d) => d.code === 'PPL005')).toBe(false);
+
+    // Typo matching with custom function
+    const typoQuery = 'source=logs | stats custom_scor(bytes)';
+    const typoDiags = customLinter.lint(typoQuery);
+    const typoPpl005 = typoDiags.find((d) => d.code === 'PPL005');
+    expect(typoPpl005).toBeDefined();
+    expect(typoPpl005?.message).toContain("Did you mean 'custom_score'?");
+    expect(typoPpl005?.data?.suggestion).toBe('custom_score');
+  });
 });
+

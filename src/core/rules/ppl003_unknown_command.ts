@@ -1,20 +1,6 @@
 import { LintRule, PipelineNode, RuleContext } from '../../types';
+import { DEFAULT_KNOWN_COMMANDS } from '../catalog/commands';
 import { findClosestMatch } from './rule';
-
-const KNOWN_COMMANDS = [
-  'where',
-  'fields',
-  'stats',
-  'eval',
-  'sort',
-  'dedup',
-  'rename',
-  'head',
-  'top',
-  'rare',
-  'grok',
-  'patterns',
-];
 
 export const PPL003_UnknownCommand: LintRule = {
   id: 'PPL003',
@@ -22,10 +8,13 @@ export const PPL003_UnknownCommand: LintRule = {
   description: 'Flags unknown PPL command names and suggests the closest known command.',
   defaultSeverity: 'error',
   check(ast: PipelineNode, context: RuleContext): void {
+    const customCommands = (context.getCustomCommands?.() || []).map((c) => c.toLowerCase());
+    const knownCommands = [...DEFAULT_KNOWN_COMMANDS, ...customCommands];
+
     for (const stage of ast.stages) {
       const cmd = stage.commandName.toLowerCase();
-      if (!KNOWN_COMMANDS.includes(cmd)) {
-        const suggestion = findClosestMatch(cmd, KNOWN_COMMANDS, 3);
+      if (!knownCommands.includes(cmd)) {
+        const suggestion = findClosestMatch(cmd, knownCommands, 3);
         const message = suggestion
           ? `Unknown command '${stage.commandName}'. Did you mean '${suggestion}'?`
           : `Unknown command '${stage.commandName}'.`;

@@ -209,6 +209,43 @@
             }
           }
         },
+        "pplLinter.customCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional user-defined known PPL pipe commands to recognize, preventing PPL003 unknown command errors."
+        },
+        "pplLinter.customFunctions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional user-defined function names to recognize in expressions, preventing PPL005 unknown function warnings."
+        },
+        "pplLinter.additionalKeyPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional key patterns (dot-delimited, wildcard `*`, or `!pattern` to exclude) to extract PPL queries from structured documents (YAML, TOML, JSON) without replacing default embedded rules."
+        },
+        "pplLinter.excludeKeyPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Key patterns to exclude from PPL query extraction, removing them from the active pattern list."
+        },
+        "pplLinter.overrideDefaultKeyPatterns": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, ignores built-in default extractor key patterns and uses only user-specified key patterns."
+        },
         "pplLinter.rules": {
           "type": "object",
           "description": "Configurable severity levels for specific linter rules ('error', 'warning', 'info', 'off').",

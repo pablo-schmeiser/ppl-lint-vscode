@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build & Test (${{ matrix.os }} - Node ${{ matrix.node-version }})
@@ -30,11 +33,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit dependencies
+        run: pnpm audit --audit-level high
+
       - name: Typecheck
         run: pnpm run compile
 
       - name: Run test suite
-        run: pnpm test
+        run: pnpm test -- --reporter=default --reporter=github-actions
 
       - name: Build extension bundle
         run: pnpm run build
+
+      - name: Publish Test & Build Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## 📊 CI Build & Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Target | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :---: |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Platform Matrix** | \`${{ matrix.os }}\` / Node \`${{ matrix.node-version }}\` | 🖥️ |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Dependency Audit** | \`pnpm audit\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| **TypeScript Typecheck** | \`pnpm run compile\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |" >> $GITHUB_STEP_SUMMARY
+

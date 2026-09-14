@@ -2,7 +2,7 @@ import { minimatch } from 'minimatch';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { PplLinter } from '../core/linter';
-import { extractQueries } from '../extractors/extractor';
+import { extractQueries, resolveKeyPatterns } from '../extractors/extractor';
 import { CoreDiagnostic, PplLinterConfig } from '../types';
 import { getPplConfig } from './config';
 
@@ -16,13 +16,21 @@ export class PplDiagnosticManager implements vscode.Disposable {
   constructor(onTotalDiagnosticsChanged?: (totalErrors: number) => void) {
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection('ppl');
     this.config = getPplConfig();
-    this.linter = new PplLinter({ rules: this.config.rules });
+    this.linter = new PplLinter({
+      rules: this.config.rules,
+      customCommands: this.config.customCommands,
+      customFunctions: this.config.customFunctions,
+    });
     this.onTotalDiagnosticsChanged = onTotalDiagnosticsChanged;
   }
 
   public reloadConfig(): void {
     this.config = getPplConfig();
-    this.linter = new PplLinter({ rules: this.config.rules });
+    this.linter = new PplLinter({
+      rules: this.config.rules,
+      customCommands: this.config.customCommands,
+      customFunctions: this.config.customFunctions,
+    });
     this.reLintOpenDocuments();
   }
 
@@ -70,10 +78,16 @@ export class PplDiagnosticManager implements vscode.Disposable {
 
       if (matchesGlob) {
         matchedEmbeddedRule = true;
+        const effectiveKeyPatterns = resolveKeyPatterns(rule.keyPatterns, {
+          additional: this.config.additionalKeyPatterns,
+          exclude: this.config.excludeKeyPatterns,
+          overrideDefaults: this.config.overrideDefaultKeyPatterns,
+        });
+
         const extracted = extractQueries(
           docText,
           rule.format,
-          rule.keyPatterns,
+          effectiveKeyPatterns,
           rule.heuristicDetection
         );
 

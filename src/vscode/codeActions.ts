@@ -5,7 +5,7 @@ export class PplCodeActionProvider implements vscode.CodeActionProvider {
 
   public provideCodeActions(
     document: vscode.TextDocument,
-    range: vscode.Range | vscode.Selection,
+    _range: vscode.Range | vscode.Selection,
     context: vscode.CodeActionContext
   ): vscode.CodeAction[] {
     const actions: vscode.CodeAction[] = [];

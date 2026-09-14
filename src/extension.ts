@@ -61,7 +61,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('pplLinter')) {
         diagnosticManager?.reloadConfig();
-        const config = getPplConfig();
         updateStatusBar(0);
       }
     })

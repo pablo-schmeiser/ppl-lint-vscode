@@ -1,4 +1,4 @@
-import { Position, Span, Token, TokenType } from '../../types';
+import { Position, Token, TokenType } from '../../types';
 
 const KEYWORDS: Record<string, TokenType> = {
   SOURCE: TokenType.SOURCE,

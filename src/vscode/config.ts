@@ -57,6 +57,11 @@ export function getPplConfig(): PplLinterConfig {
   };
 
   const rules = config.get<Record<string, DiagnosticSeverity>>('rules', defaultRules);
+  const customCommands = config.get<string[]>('customCommands', []);
+  const customFunctions = config.get<string[]>('customFunctions', []);
+  const additionalKeyPatterns = config.get<string[]>('additionalKeyPatterns', []);
+  const excludeKeyPatterns = config.get<string[]>('excludeKeyPatterns', []);
+  const overrideDefaultKeyPatterns = config.get<boolean>('overrideDefaultKeyPatterns', false);
   const lintOnType = config.get<boolean>('lintOnType', true);
   const debounceMs = config.get<number>('debounceMs', 350);
 
@@ -64,6 +69,11 @@ export function getPplConfig(): PplLinterConfig {
     enabled,
     standalone,
     embedded,
+    customCommands,
+    customFunctions,
+    additionalKeyPatterns,
+    excludeKeyPatterns,
+    overrideDefaultKeyPatterns,
     rules,
     lintOnType,
     debounceMs,

@@ -23,4 +23,7 @@ We will credit your contribution in the release notes and in the release or secu
 ## Security Considerations
 
 - **Workspace File Safety**: This extension parses user files (YAML, TOML, JSON, and PPL) purely in memory using AST visitors. It executes **zero external shell commands** or dynamic code evaluations (`eval`, `Function`).
-- **Dependency Hygiene**: All runtime dependencies are audited via automated weekly Dependabot checks.
+- **Dependency Hygiene**:
+  - All pull requests and commits are verified against known CVEs via automated `pnpm audit` checks in the CI pipeline.
+  - Dependencies and GitHub Actions are kept continuously up to date via weekly Dependabot version updates ([`.github/dependabot.yml`](.github/dependabot.yml)).
+  - Vulnerability alerts are tracked and remediated via GitHub Dependabot Security Advisories.

@@ -107,6 +107,8 @@ export type ASTNodeType =
   | 'OptionStage'
   | 'JoinStage'
   | 'BinaryExpression'
+  | 'CastExpression'
+  | 'InExpression'
   | 'UnaryExpression'
   | 'FunctionCall'
   | 'Identifier'
@@ -139,6 +141,19 @@ export interface BinaryExpressionNode extends ExpressionNode {
   right: ExpressionNode;
 }
 
+export interface InExpressionNode extends ExpressionNode {
+  type: 'InExpression';
+  left: ExpressionNode;
+  values: ExpressionNode[];
+}
+
+export interface CastExpressionNode extends ExpressionNode {
+  type: 'CastExpression';
+  expression: ExpressionNode;
+  targetType: string;
+  targetTypeSpan: Span;
+}
+
 export interface UnaryExpressionNode extends ExpressionNode {
   type: 'UnaryExpression';
   operator: string;
@@ -149,6 +164,8 @@ export interface FunctionCallNode extends ExpressionNode {
   type: 'FunctionCall';
   functionName: string;
   arguments: ExpressionNode[];
+  alias?: string;
+  aliasSpan?: Span;
 }
 
 export interface PipeStageNode extends BaseASTNode {
@@ -186,6 +203,7 @@ export interface StatsStageNode extends PipeStageNode {
   type: 'StatsStage';
   aggregations: FunctionCallNode[];
   groupBy: IdentifierNode[];
+  groupByExpressions?: Array<{ expression: ExpressionNode; outputName?: string; outputSpan?: Span }>;
 }
 
 export interface FieldsStageNode extends PipeStageNode {
@@ -316,6 +334,7 @@ export interface SourceCoordinateMap {
    * Translates a span in snippet-local coordinates to the host document coordinates.
    */
   translate(snippetSpan: Span): HostRange | undefined;
+  toSnippet(position: HostPosition, snippetText: string): HostPosition | undefined;
 }
 
 export interface ExtractedQuery {
@@ -350,6 +369,7 @@ export interface EmbeddedRuleConfig {
 export interface PplLinterConfig {
   enabled: boolean;
   openSearchVersion: string;
+  indexTemplateGlob: string;
   standalone: StandaloneConfig;
   embedded: EmbeddedRuleConfig[];
   customCommands: string[];

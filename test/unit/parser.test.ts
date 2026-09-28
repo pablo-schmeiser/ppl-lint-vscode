@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PplLinter } from '../../src/core/linter';
 import { tokenize } from '../../src/core/lexer/tokenizer';
 import { parsePpl } from '../../src/core/parser/parser';
 import { TokenType } from '../../src/types';
@@ -142,6 +143,24 @@ describe('PPL Parser', () => {
     const whereStage = ast.stages[0] as any;
     expect(whereStage.condition.type).toBe('BinaryExpression');
     expect(whereStage.condition.operator.toUpperCase()).toBe('OR');
+  });
+
+  it('parses a parenthesized IN list within a compound monitor condition', () => {
+    const query = "source=logs | where (event.action = 'path') AND (auditd.data.name IN ('/root/.bashrc', '/root/.bash_profile', '/root/.profile','/etc/.profile','/etc/shells','/etc/bashrc','/etc/csh.cshrc','/etc/csh.login') OR auditd.data.name like '/home/%/.bashrc' OR auditd.data.name like '/home/%/.bash_profile' OR auditd.data.name like '/home/%/.profile') OR labels.audit_key='T1156_bash_profile_and_bashrc'";
+    const ast = parsePpl(query);
+
+    expect(ast.syntaxErrors).toEqual([]);
+    expect(ast.stages).toHaveLength(1);
+    expect(ast.stages[0].type).toBe('WhereStage');
+    expect(new PplLinter().lint(query).filter((diagnostic) => diagnostic.code === 'PPL001')).toEqual([]);
+  });
+
+  it.each([
+    "source=logs | where status IN ()",
+    "source=logs | where status IN ('open',)",
+    "source=logs | where status IN ('open' 'closed')",
+  ])('rejects malformed IN lists: %s', (query) => {
+    expect(parsePpl(query).syntaxErrors.length).toBeGreaterThan(0);
   });
 
   it('parses rename command stage', () => {

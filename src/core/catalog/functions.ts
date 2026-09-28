@@ -62,6 +62,7 @@ export const STRING_FUNCTIONS: readonly string[] = [
   'replace',
   'regexp_extract',
   'regexp_match',
+  'match_phrase',
   'regexp_replace',
   'like',
   'ilike',
@@ -77,6 +78,7 @@ export const DATETIME_FUNCTIONS: readonly string[] = [
   'year',
   'month',
   'day',
+  'dayname',
   'hour',
   'minute',
   'second',
@@ -89,6 +91,10 @@ export const DATETIME_FUNCTIONS: readonly string[] = [
   'unix_timestamp',
   'extract',
   'timestamp',
+] as const;
+
+export const ARRAY_FUNCTIONS: readonly string[] = [
+  'array_length',
 ] as const;
 
 export const CONDITIONAL_FUNCTIONS: readonly string[] = [
@@ -118,6 +124,7 @@ export const DEFAULT_KNOWN_FUNCTIONS: readonly string[] = [
   ...AGGREGATION_FUNCTIONS,
   ...MATH_FUNCTIONS,
   ...STRING_FUNCTIONS,
+  ...ARRAY_FUNCTIONS,
   ...DATETIME_FUNCTIONS,
   ...CONDITIONAL_FUNCTIONS,
   ...TYPE_AND_CRYPTO_FUNCTIONS,

@@ -6,6 +6,7 @@ export function getPplConfig(): PplLinterConfig {
 
   const enabled = config.get<boolean>('enabled', true);
   const openSearchVersion = config.get<string>('openSearchVersion', '3.5');
+  const indexTemplateGlob = config.get<string>('indexTemplateGlob', '');
 
   const standalone = config.get<StandaloneConfig>('standalone', {
     fileExtensions: ['.ppl', '.pplquery', '.query'],
@@ -58,6 +59,11 @@ export function getPplConfig(): PplLinterConfig {
     PPL008: 'error',
     PPL009: 'warning',
     PPL010: 'error',
+    PPL011: 'error',
+    PPL012: 'error',
+    PPL013: 'error',
+    PPL014: 'error',
+    PPL015: 'warning',
   };
 
   const rules = config.get<Record<string, DiagnosticSeverity>>('rules', defaultRules);
@@ -72,6 +78,7 @@ export function getPplConfig(): PplLinterConfig {
   return {
     enabled,
     openSearchVersion,
+    indexTemplateGlob,
     standalone,
     embedded,
     customCommands,

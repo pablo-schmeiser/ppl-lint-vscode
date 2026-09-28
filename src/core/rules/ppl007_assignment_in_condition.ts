@@ -2,6 +2,7 @@ import {
   BinaryExpressionNode,
   ExpressionNode,
   FunctionCallNode,
+  InExpressionNode,
   LintRule,
   PipelineNode,
   RuleContext,
@@ -42,6 +43,10 @@ export const PPL007_AssignmentInCondition: LintRule = {
 
         inspectExpression(bin.left);
         inspectExpression(bin.right);
+      } else if (expr.type === 'InExpression') {
+        const membership = expr as InExpressionNode;
+        inspectExpression(membership.left);
+        for (const value of membership.values) inspectExpression(value);
       } else if (expr.type === 'UnaryExpression') {
         inspectExpression((expr as UnaryExpressionNode).argument);
       } else if (expr.type === 'FunctionCall') {

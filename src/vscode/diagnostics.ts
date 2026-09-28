@@ -1,10 +1,9 @@
-import { minimatch } from 'minimatch';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { PplLinter } from '../core/linter';
-import { extractQueries, resolveKeyPatterns } from '../extractors/extractor';
 import { CoreDiagnostic, PplLinterConfig } from '../types';
 import { getPplConfig } from './config';
+import { IndexTemplateCatalog } from './indexTemplateCatalog';
+import { embeddedQueries, isStandalone } from './queryDocument';
 
 export class PplDiagnosticManager implements vscode.Disposable {
   private diagnosticCollection: vscode.DiagnosticCollection;
@@ -13,7 +12,10 @@ export class PplDiagnosticManager implements vscode.Disposable {
   private config: PplLinterConfig;
   private onTotalDiagnosticsChanged?: (totalErrors: number) => void;
 
-  constructor(onTotalDiagnosticsChanged?: (totalErrors: number) => void) {
+  constructor(
+    onTotalDiagnosticsChanged?: (totalErrors: number) => void,
+    private readonly getIndexTemplateCatalog?: () => IndexTemplateCatalog | undefined
+  ) {
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection('ppl');
     this.config = getPplConfig();
     this.linter = new PplLinter({
@@ -36,7 +38,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
     this.reLintOpenDocuments();
   }
 
-  public lintDocument(document: vscode.TextDocument): void {
+  public async lintDocument(document: vscode.TextDocument): Promise<void> {
     if (!this.config.enabled) {
       this.diagnosticCollection.delete(document.uri);
       this.updateStatus();
@@ -50,71 +52,40 @@ export class PplDiagnosticManager implements vscode.Disposable {
       this.debounceTimers.delete(uriString);
     }
 
-    const docText = document.getText();
-    const docPath = document.uri.fsPath || document.fileName;
-    const ext = path.extname(docPath).toLowerCase();
+    const documentVersion = document.version;
+    const documentText = document.getText();
+    const standalone = isStandalone(document, this.config);
+    const embedded = standalone ? undefined : embeddedQueries(document, this.config);
+    if (!standalone && !embedded?.matched) return;
 
-    // 1. Check if Standalone PPL
-    const isStandalone =
-      document.languageId === 'ppl' ||
-      this.config.standalone.languageIds.includes(document.languageId) ||
-      this.config.standalone.fileExtensions.includes(ext);
+    const schemaEnabled = this.config.indexTemplateGlob.length > 0;
+    const templates = schemaEnabled
+      ? (await this.getIndexTemplateCatalog?.()?.forDocument(document)) || []
+      : [];
+    if (document.version !== documentVersion) return;
 
-    if (isStandalone) {
-      const coreDiagnostics = this.linter.lint(docText);
+    if (standalone) {
+      const coreDiagnostics = this.linter.lint(documentText, templates, schemaEnabled);
       const vsDiagnostics = coreDiagnostics.map((d) => this.toVsCodeDiagnostic(d));
       this.diagnosticCollection.set(document.uri, vsDiagnostics);
       this.updateStatus();
       return;
     }
 
-    // 2. Check if Structured Host Document (YAML, TOML, JSON)
     const vsDiagnostics: vscode.Diagnostic[] = [];
-    let matchedEmbeddedRule = false;
-
-    for (const rule of this.config.embedded) {
-      const matchesGlob = minimatch(docPath, rule.filePattern, {
-        dot: true,
-        matchBase: true,
-      });
-
-      if (matchesGlob) {
-        matchedEmbeddedRule = true;
-        const effectiveKeyPatterns = resolveKeyPatterns(rule.keyPatterns, {
-          additional: this.config.additionalKeyPatterns,
-          exclude: this.config.excludeKeyPatterns,
-          overrideDefaults: this.config.overrideDefaultKeyPatterns,
-        });
-
-        const extracted = extractQueries(
-          docText,
-          rule.format,
-          effectiveKeyPatterns,
-          rule.heuristicDetection
-        );
-
-        for (const query of extracted) {
-          const coreDiagnostics = this.linter.lint(query.rawText);
-          for (const coreDiag of coreDiagnostics) {
-            const hostRange = query.sourceMap.translate(coreDiag.span);
-            if (!hostRange) continue;
-            const vsDiag = this.createVsCodeDiagnostic(
-              hostRange.start.line,
-              hostRange.start.col,
-              hostRange.end.line,
-              hostRange.end.col,
-              coreDiag
-            );
-            vsDiagnostics.push(vsDiag);
-          }
-        }
+    for (const query of embedded!.queries) {
+      const coreDiagnostics = this.linter.lint(query.rawText, templates, schemaEnabled);
+      for (const coreDiag of coreDiagnostics) {
+        const hostRange = query.sourceMap.translate(coreDiag.span);
+        if (!hostRange) continue;
+        vsDiagnostics.push(this.createVsCodeDiagnostic(
+          hostRange.start.line, hostRange.start.col, hostRange.end.line, hostRange.end.col, coreDiag
+        ));
       }
     }
 
-    if (matchedEmbeddedRule) {
-      this.diagnosticCollection.set(document.uri, vsDiagnostics);
-      this.updateStatus();
-    }
+    this.diagnosticCollection.set(document.uri, vsDiagnostics);
+    this.updateStatus();
   }
 
   public scheduleLint(document: vscode.TextDocument): void {
@@ -132,7 +103,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(uriString);
-      this.lintDocument(document);
+      void this.lintDocument(document);
     }, this.config.debounceMs);
 
     this.debounceTimers.set(uriString, timer);
@@ -151,7 +122,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
 
   public reLintOpenDocuments(): void {
     for (const doc of vscode.workspace.textDocuments) {
-      this.lintDocument(doc);
+      void this.lintDocument(doc);
     }
   }
 

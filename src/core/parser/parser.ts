@@ -8,6 +8,7 @@ import {
   GenericStageNode,
   HeadStageNode,
   IdentifierNode,
+  InExpressionNode,
   JoinStageNode,
   LiteralNode,
   LookupStageNode,
@@ -26,6 +27,7 @@ import {
 } from '../../types';
 import {
   createBinaryExpressionNode,
+  createCastExpressionNode,
   createDedupStageNode,
   createEvalStageNode,
   createErrorNode,
@@ -249,6 +251,10 @@ export class PplParser {
       return this.parseFieldsStage();
     }
 
+    if (cmdName === 'table') {
+      return { ...this.parseFieldsStage(), commandName: 'table' };
+    }
+
     if (cmdToken.type === TokenType.SORT || cmdName === 'sort') {
       return this.parseSortStage();
     }
@@ -318,20 +324,25 @@ export class PplParser {
     }
     const aggregations = this.parseStatsAggregations();
     let groupBy: IdentifierNode[] = [];
+    const groupByExpressions: NonNullable<StatsStageNode['groupByExpressions']> = [];
 
     // Optional: 'by' <field-list>
     if (this.match(TokenType.BY)) {
       do {
         const expr = this.parsePrimary();
         if (expr.type === 'Identifier' || expr.type === 'FunctionCall') {
-          groupBy.push(createIdentifierNode(
-            expr.type === 'Identifier' ? (expr as IdentifierNode).name : (expr as FunctionCallNode).functionName,
-            false, expr.span
-          ));
+          const aliasIdentifier = this.match(TokenType.AS)
+            ? this.parseFieldIdentifier('Expected alias after as')
+            : undefined;
+          const alias = aliasIdentifier?.name;
+          const outputName = alias || (expr.type === 'Identifier' ? (expr as IdentifierNode).name : undefined);
+          groupByExpressions.push({ expression: expr, outputName, outputSpan: aliasIdentifier?.span });
+          if (alias || expr.type === 'Identifier') {
+            groupBy.push(createIdentifierNode(outputName!, false, expr.span));
+          }
         } else {
           this.recordError("Expected field or span expression in stats 'by' clause", expr.span);
         }
-        if (this.match(TokenType.AS)) this.parseFieldIdentifier('Expected alias after as');
       } while (this.match(TokenType.COMMA));
     }
 
@@ -341,7 +352,7 @@ export class PplParser {
       end: endPos,
     };
 
-    return { ...createStatsStageNode(aggregations, groupBy, span), commandName: command };
+    return { ...createStatsStageNode(aggregations, groupBy, span), commandName: command, groupByExpressions };
   }
 
   private parseStatsAggregations(): FunctionCallNode[] {
@@ -350,8 +361,13 @@ export class PplParser {
     while (!this.isAtEnd() && !this.check(TokenType.PIPE) && !this.check(TokenType.BY)) {
       const expr = this.parsePrimary();
       if (expr.type === 'FunctionCall') {
-        aggregations.push(expr as FunctionCallNode);
-        if (this.match(TokenType.AS)) this.parseFieldIdentifier('Expected aggregation alias after as');
+        const aggregation = expr as FunctionCallNode;
+        if (this.match(TokenType.AS)) {
+          const alias = this.parseFieldIdentifier('Expected aggregation alias after as');
+          aggregation.alias = alias?.name;
+          aggregation.aliasSpan = alias?.span;
+        }
+        aggregations.push(aggregation);
       } else {
         this.recordError(
           "Expected aggregation function (e.g. 'count()', 'avg(field)') in stats command",
@@ -623,8 +639,8 @@ export class PplParser {
     let outputMode: LookupStageNode['outputMode'];
     while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
       const mode = this.peek().value.toLowerCase();
-      if (mode === 'replace' || mode === 'append') {
-        outputMode = mode;
+      if (mode === 'replace' || mode === 'append' || mode === 'output') {
+        outputMode = mode === 'replace' ? 'replace' : 'append';
         this.advance();
         break;
       }
@@ -632,7 +648,7 @@ export class PplParser {
       if (!lookup) break;
       const source = this.match(TokenType.AS) ? this.parseFieldIdentifier('Expected source mapping field') ?? undefined : undefined;
       mappings.push({ lookup, source });
-      if (!this.match(TokenType.COMMA) && !['replace', 'append'].includes(this.peek().value.toLowerCase())) break;
+      if (!this.match(TokenType.COMMA) && !['replace', 'append', 'output'].includes(this.peek().value.toLowerCase())) break;
     }
     if (outputMode) {
       do {
@@ -885,12 +901,41 @@ export class PplParser {
       this.match(TokenType.IN)
     ) {
       const op = this.previous();
+      if (op.type === TokenType.IN) {
+        expr = this.parseInExpression(expr);
+        continue;
+      }
       const right = this.parseComparison();
       const span: Span = { start: expr.span.start, end: right.span.end };
       expr = createBinaryExpressionNode(expr, op.value, right, span);
     }
 
     return expr;
+  }
+
+  private parseInExpression(left: ExpressionNode): InExpressionNode {
+    if (!this.match(TokenType.LPAREN)) {
+      this.recordError("Expected '(' after IN", this.peek().span);
+      return { type: 'InExpression', left, values: [], span: left.span };
+    }
+
+    const values: ExpressionNode[] = [];
+    if (this.check(TokenType.RPAREN)) {
+      this.recordError('Expected at least one value in IN list', this.peek().span);
+    } else {
+      do {
+        if (this.check(TokenType.RPAREN)) {
+          this.recordError('Expected value after comma in IN list', this.peek().span);
+          break;
+        }
+        values.push(this.parseExpression());
+      } while (this.match(TokenType.COMMA));
+    }
+
+    if (!this.match(TokenType.RPAREN)) {
+      this.recordError("Expected ')' after IN list", this.peek().span);
+    }
+    return { type: 'InExpression', left, values, span: { start: left.span.start, end: this.previous().span.end } };
   }
 
   private parseComparison(): ExpressionNode {
@@ -1042,7 +1087,27 @@ export class PplParser {
   }
 
   private parseFunctionCall(calleeToken: Token): ExpressionNode {
-    const args = this.parseFunctionArguments();
+    if (calleeToken.value.toLowerCase() === 'cast') {
+      const expression = this.parseExpression();
+      if (!this.match(TokenType.AS)) {
+        return this.recordError("Expected 'AS' and a target type in CAST expression", this.peek().span);
+      }
+      if (!this.check(TokenType.IDENTIFIER)) {
+        return this.recordError('Expected target type after AS in CAST expression', this.peek().span);
+      }
+      const targetType = this.advance();
+      if (!this.match(TokenType.RPAREN)) {
+        this.recordError("Unclosed CAST expression: expected ')'", this.peek().span, ')');
+      }
+      return createCastExpressionNode(
+        expression,
+        targetType.value.toLowerCase(),
+        targetType.span,
+        { start: calleeToken.span.start, end: this.previous().span.end }
+      );
+    }
+
+    const args = this.parseFunctionArguments(calleeToken);
 
     if (!this.match(TokenType.RPAREN)) {
       return this.recordError(
@@ -1057,7 +1122,15 @@ export class PplParser {
     return createFunctionCallNode(calleeToken.value, args, span);
   }
 
-  private parseFunctionArguments(): ExpressionNode[] {
+  private parseFunctionArguments(calleeToken: Token): ExpressionNode[] {
+    if (calleeToken.value.toLowerCase() === 'position') {
+      const substring = this.parseComparison();
+      if (!this.match(TokenType.IN)) {
+        this.recordError("Expected 'IN' in POSITION call", this.peek().span);
+        return [substring];
+      }
+      return [substring, this.parseExpression()];
+    }
     const args: ExpressionNode[] = [];
     if (!this.check(TokenType.RPAREN)) {
       do {

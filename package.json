@@ -96,6 +96,11 @@
           "default": "3.5",
           "description": "Target OpenSearch version (major.minor or major.minor.patch, minimum 3.5). Newer unverified versions use the 3.5 baseline with a warning."
         },
+        "pplLinter.indexTemplateGlob": {
+          "type": "string",
+          "default": "",
+          "description": "Glob for OpenSearch index-template YAML files, relative to the workspace or absolute for external folders. Empty keeps syntax-only linting and disables schema diagnostics and suggestions."
+        },
         "pplLinter.standalone": {
           "type": "object",
           "description": "Settings for standalone PPL files.",
@@ -269,7 +274,12 @@
             "PPL007": "warning",
             "PPL008": "error",
             "PPL009": "warning",
-            "PPL010": "error"
+            "PPL010": "error",
+            "PPL011": "error",
+            "PPL012": "error",
+            "PPL013": "error",
+            "PPL014": "error",
+            "PPL015": "warning"
           },
           "properties": {
             "PPL001": {
@@ -381,6 +391,36 @@
               ],
               "default": "error",
               "description": "PPL010: Selected OpenSearch version is invalid or older than 3.5"
+            },
+            "PPL011": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL011: No configured index template matches the source"
+            },
+            "PPL012": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL012: Field is not declared or has no supported PPL type"
+            },
+            "PPL013": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL013: Field has conflicting mapped PPL types"
+            },
+            "PPL014": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL014: Function arguments, casts or operators have incompatible types"
+            },
+            "PPL015": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "warning",
+              "description": "PPL015: Implicit conversion may fail for some values"
             }
           }
         },

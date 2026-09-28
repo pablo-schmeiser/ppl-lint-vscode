@@ -12,6 +12,7 @@ export interface CommandDoc {
 export const DEFAULT_KNOWN_COMMANDS: readonly string[] = [
   'where',
   'fields',
+  'table',
   'stats',
   'eval',
   'sort',
@@ -142,5 +143,12 @@ export const COMMAND_DOCS: Record<string, CommandDoc> = {
     description: 'Extracts patterns and clusters from log event messages.',
     example: 'patterns message',
     docUrl: 'https://opensearch.org/docs/latest/search-plugins/ppl/commands/patterns/',
+  },
+  lookup: {
+    name: 'lookup',
+    syntax: 'lookup <lookupIndex> (<lookupMappingField> [as <sourceMappingField>])... [(replace | append | output) (<inputField> [as <outputField>])...]',
+    description: 'Enriches source results with values from a lookup index by matching fields, with options to replace or append selected values.',
+    example: 'source = worker | lookup work_information uid as id replace department',
+    docUrl: 'https://docs.opensearch.org/latest/sql-and-ppl/ppl/commands/lookup/',
   },
 };

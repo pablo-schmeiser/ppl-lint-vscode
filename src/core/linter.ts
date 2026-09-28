@@ -8,6 +8,8 @@ import { parsePpl } from './parser/parser';
 import { defaultRuleRegistry, RuleRegistry } from './rules/registry';
 import { DefaultRuleContext } from './rules/rule';
 import { applyCompatibilityExceptions, BASELINE_VERSION, compareVersions, parseOpenSearchVersion } from './compatibility';
+import { IndexTemplate } from './indexTemplates';
+import { checkSchemaTypes } from './schemaTypeChecker';
 
 export class PplLinter {
   private readonly registry: RuleRegistry;
@@ -19,12 +21,21 @@ export class PplLinter {
     this.registry = customRegistry || defaultRuleRegistry;
   }
 
-  public lint(queryText: string): CoreDiagnostic[] {
+  public lint(
+    queryText: string,
+    templates: readonly IndexTemplate[] = [],
+    schemaEnabled: boolean = templates.length > 0
+  ): CoreDiagnostic[] {
     const ast = parsePpl(queryText);
-    return this.lintAst(ast);
+    return this.lintAst(ast, templates, queryText, schemaEnabled);
   }
 
-  public lintAst(ast: PipelineNode): CoreDiagnostic[] {
+  public lintAst(
+    ast: PipelineNode,
+    templates: readonly IndexTemplate[] = [],
+    queryText: string = '',
+    schemaEnabled: boolean = templates.length > 0
+  ): CoreDiagnostic[] {
     const context = new DefaultRuleContext(this.options);
     const requested = this.options.openSearchVersion || '3.5';
     const version = parseOpenSearchVersion(requested);
@@ -47,6 +58,7 @@ export class PplLinter {
     }
 
     this.checkPipeline(ast, context);
+    for (const diagnostic of checkSchemaTypes(queryText, ast, templates, schemaEnabled)) context.report(diagnostic);
 
     applyCompatibilityExceptions(ast, context, version);
 

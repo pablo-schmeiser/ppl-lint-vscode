@@ -92,6 +92,12 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(ppl005?.message).toContain("Unknown function 'unknow_func'");
   });
 
+  it('checks function calls inside IN lists', () => {
+    const diagnostics = linter.lint('source=logs | where status IN (known_value, unknow_func(status))');
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(true);
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL001')).toBe(false);
+  });
+
   it('PPL006: warns when filter is placed after heavy operations (sort/stats/dedup)', () => {
     const query = 'source=logs | sort bytes | where status == 200';
     const diagnostics = linter.lint(query);

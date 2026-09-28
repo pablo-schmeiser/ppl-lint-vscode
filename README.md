@@ -35,6 +35,8 @@ TOML extraction currently handles section headers, dotted bare keys, and quoted 
 - 🛡️ **Resilient Parser with Error Recovery**: Parsing recovers across `|` pipes so syntax errors in one stage never cascade down the pipeline.
 - 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command and function typos and assignment operators in conditions (`Ctrl+.` or `Cmd+.`). A missing source requires you to supply an index name.
 - 📖 **Command Documentation Hovers**: Hover over any PPL command (`where`, `stats`, `eval`, `dedup`, `sort`, `rename`, `grok`, etc.) to view syntax templates, descriptions, and official OpenSearch documentation links.
+- **Context-Aware Suggestions**: Suggest pipeline commands after `|`, aggregation functions after `stats`, and PPL functions while writing expressions. Function-argument fields are filtered by type, CAST targets are suggested, and string fields accepted through numeric coercion are marked as potentially unsafe.
+- **Mapped Field Hovers**: Hover over a field such as `event.type` to see its normalized PPL type and the index template that supplied it. Computed fields show their inferred PPL type and pipeline origin.
 - 🎨 **TextMate Syntax Highlighting**: Rich colorization for commands, functions, operators, comments, and identifiers.
 
 The PPL TextMate grammar colors standalone `.ppl`, `.pplquery`, and `.query` files. It includes OpenSearch 3.5 commands such as `lookup`, `rex`, and `streamstats`, their option names, common aggregation/date/IP functions, `@timestamp`-style fields, and interval literals such as `5m`. YAML monitor queries receive diagnostics through extraction but retain YAML highlighting; TextMate coloring does not imply that a command is fully validated by the AST. The syntax names follow the [OpenSearch 3.5 command reference](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/commands/index/) and [function reference](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/). The monitor-specific `lookup ... OUTPUT ...` clause is colored but is not documented in the 3.5 lookup syntax, so verify it against the target cluster.
@@ -55,6 +57,11 @@ The PPL TextMate grammar colors standalone `.ppl`, `.pplquery`, and `.query` fil
 | **`PPL008`** | `UnverifiedStage` | `error` | A recognized command has arguments not yet represented in the syntax tree; this does not mean OpenSearch rejects the query. |
 | **`PPL009`** | `UnverifiedVersion` | `warning` | Selected version is newer than the 3.5 baseline. |
 | **`PPL010`** | `UnsupportedVersion` | `error` | Selected version is invalid or older than 3.5. |
+| **`PPL011`** | `UnresolvedSource` | `error` | No configured index template or alias matches the query source. |
+| **`PPL012`** | `UnknownOrUntypedField` | `error` | Field is absent from the resolved templates, dynamic-only, or has no supported PPL type. |
+| **`PPL013`** | `ConflictingFieldTypes` | `error` | A field use resolves to multiple PPL types across templates for the source. |
+| **`PPL014`** | `TypeMismatch` | `error` | Function arguments, casts, or operators use incompatible types. |
+| **`PPL015`** | `RiskyImplicitConversion` | `warning` | PPL permits an implicit conversion whose success depends on field values. |
 
 Structured validation covers `source`/`search`, `where`, `fields`, `stats`, `eventstats`, `streamstats`, `eval`, `sort`, `rename`, `head`, `dedup`, `lookup`, `join` with subqueries, `rex`, `parse`, `regex`, `bin`, and `timechart` for the forms exercised by the conformance suite. Other recognized stages are reported as unverified by PPL008. Disable PPL008 for a workspace with `"pplLinter.rules": { "PPL008": "off" }` if a known valid query uses one of these stages. Custom commands remain unverified even when listed in `customCommands`.
 
@@ -75,6 +82,8 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
   // Enable or disable PPL linting globally
   "pplLinter.enabled": true,
   "pplLinter.openSearchVersion": "3.5",
+  // OpenSearch index-template YAML files used as the field/type schema
+  "pplLinter.indexTemplateGlob": "/path/to/templates/index-template-*.yaml",
 
   // Standalone file mappings
   "pplLinter.standalone": {
@@ -145,7 +154,12 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
     "PPL007": "warning",
     "PPL008": "error",
     "PPL009": "warning",
-    "PPL010": "error"
+    "PPL010": "error",
+    "PPL011": "error",
+    "PPL012": "error",
+    "PPL013": "error",
+    "PPL014": "error",
+    "PPL015": "warning"
   },
 
   // Debounce delay in milliseconds for typing
@@ -153,6 +167,14 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
   "pplLinter.lintOnType": true
 }
 ```
+
+`pplLinter.indexTemplateGlob` is empty by default. Without it, the extension keeps syntax-only linting. Set a workspace-relative glob or an absolute glob for templates in another repository. When enabled, the extension watches those files and uses their index patterns, aliases, declared properties, nested properties, and multi-fields for field/type checks, hover, and completion. A source that matches no configured template is an error. A field absent from all templates, or only allowed by a `dynamic: true` mapping, is an error when used. Fields from templates sharing an alias are combined; equivalent PPL types merge, while conflicting PPL types are reported at the field reference. The checker follows PPL implicit conversions and warns when string-to-number conversion may fail for runtime values.
+
+Function signatures and casts infer types through `eval` and named `stats` outputs. Field scope follows `fields`, `table`, `rename`, `stats`, `eventstats`, and `streamstats`. After an unmodeled field-changing stage, hard missing-field checks pause to avoid false positives. Incomplete syntax suppresses dependent semantic errors. Lookup output fields have no schema in this release: using one reports PPL012. A separate lookup-schema source is planned for later.
+
+The OpenSearch type mapping follows the documented PPL types. `keyword`, `text`, and `wildcard` map to `string`; `integer` to `int`; `long` to `bigint`; `date` to `timestamp`; `object` to `struct`; and `nested` to `array`. Unsupported OpenSearch mapping types are treated as untyped rather than guessed.
+
+For embedded YAML, TOML, and JSON queries, schema diagnostics and completions require exact source mapping, just like existing diagnostics. Decoded or folded strings remain unmappable and are skipped.
 
 ---
 

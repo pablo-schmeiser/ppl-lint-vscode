@@ -3,11 +3,17 @@ import { PplCodeActionProvider } from './vscode/codeActions';
 import { getPplConfig } from './vscode/config';
 import { PplDiagnosticManager } from './vscode/diagnostics';
 import { PplHoverProvider } from './vscode/hover';
+import { PplCompletionProvider } from './vscode/completion';
+import { IndexTemplateCatalog } from './vscode/indexTemplateCatalog';
 
 let diagnosticManager: PplDiagnosticManager | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let indexTemplateCatalog: IndexTemplateCatalog | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
+  const onTemplatesChanged = (): void => diagnosticManager?.reLintOpenDocuments();
+  indexTemplateCatalog = new IndexTemplateCatalog(getPplConfig().indexTemplateGlob, onTemplatesChanged);
+  context.subscriptions.push(indexTemplateCatalog);
   // 1. Status Bar Item
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -37,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   // 2. Diagnostic Manager
-  diagnosticManager = new PplDiagnosticManager(updateStatusBar);
+  diagnosticManager = new PplDiagnosticManager(updateStatusBar, () => indexTemplateCatalog);
   context.subscriptions.push(diagnosticManager);
 
   // 3. Document Listeners
@@ -61,6 +67,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('pplLinter')) {
         diagnosticManager?.reloadConfig();
+        indexTemplateCatalog?.dispose();
+        indexTemplateCatalog = new IndexTemplateCatalog(getPplConfig().indexTemplateGlob, onTemplatesChanged);
+        context.subscriptions.push(indexTemplateCatalog);
         updateStatusBar(0);
       }
     })
@@ -79,16 +88,21 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.languages.registerHoverProvider(
       supportedLanguages,
-      new PplHoverProvider()
+      new PplHoverProvider(() => indexTemplateCatalog!)
+    ),
+    vscode.languages.registerCompletionItemProvider(
+      supportedLanguages,
+      new PplCompletionProvider(() => indexTemplateCatalog!),
+      '.', '=', '|', '(', ',', ' '
     )
   );
 
   // 6. Registered Commands
   context.subscriptions.push(
-    vscode.commands.registerCommand('pplLinter.lintCurrentFile', () => {
+    vscode.commands.registerCommand('pplLinter.lintCurrentFile', async () => {
       const activeEditor = vscode.window.activeTextEditor;
       if (activeEditor) {
-        diagnosticManager?.lintDocument(activeEditor.document);
+        await diagnosticManager?.lintDocument(activeEditor.document);
         vscode.window.showInformationMessage('PPL: Linted current document.');
       } else {
         vscode.window.showInformationMessage('PPL: No active editor to lint.');

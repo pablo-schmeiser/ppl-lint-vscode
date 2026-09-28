@@ -18,6 +18,9 @@ describe('SourceCoordinateMap', () => {
     const translated = map.translate(span)!;
     expect(translated.start).toEqual({ line: 6, col: 6 });
     expect(translated.end).toEqual({ line: 6, col: 10 });
+    expect(map.toSnippet({ line: 6, col: 6 }, 'source=logs\n| where status > 0')).toEqual({ line: 1, col: 2 });
+    expect(map.toSnippet({ line: 6, col: 3 }, 'source=logs\n| where status > 0')).toBeUndefined();
+    expect(map.toSnippet({ line: 6, col: 50 }, 'source=logs\n| where status > 0')).toBeUndefined();
   });
 });
 
@@ -91,6 +94,7 @@ rule:
         start: { line: 0, col: 0, offset: 0 },
         end: { line: 0, col: 6, offset: 6 },
       })).toBeUndefined();
+      expect(query.sourceMap.toSnippet({ line: 1, col: 4 }, query.rawText)).toBeUndefined();
     }
   });
 });

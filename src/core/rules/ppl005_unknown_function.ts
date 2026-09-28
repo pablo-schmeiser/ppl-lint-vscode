@@ -3,6 +3,7 @@ import {
   EvalStageNode,
   ExpressionNode,
   FunctionCallNode,
+  InExpressionNode,
   LintRule,
   PipelineNode,
   OptionStageNode,
@@ -80,6 +81,10 @@ export const PPL005_UnknownFunction: LintRule = {
         const bin = expr as BinaryExpressionNode;
         inspectExpression(bin.left);
         inspectExpression(bin.right);
+      } else if (expr.type === 'InExpression') {
+        const membership = expr as InExpressionNode;
+        inspectExpression(membership.left);
+        for (const value of membership.values) inspectExpression(value);
       } else if (expr.type === 'UnaryExpression') {
         const un = expr as UnaryExpressionNode;
         inspectExpression(un.argument);

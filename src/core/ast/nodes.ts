@@ -1,5 +1,6 @@
 import {
   BinaryExpressionNode,
+  CastExpressionNode,
   DedupStageNode,
   ErrorNode,
   EvalStageNode,
@@ -161,6 +162,15 @@ export function createBinaryExpressionNode(
     right,
     span,
   };
+}
+
+export function createCastExpressionNode(
+  expression: ExpressionNode,
+  targetType: string,
+  targetTypeSpan: Span,
+  span: Span
+): CastExpressionNode {
+  return { type: 'CastExpression', expression, targetType, targetTypeSpan, span };
 }
 
 export function createUnaryExpressionNode(

@@ -162,6 +162,12 @@ export class Tokenizer {
         continue;
       }
 
+      if (char === '[' || char === ']') {
+        this.advance();
+        this.addToken(char === '[' ? TokenType.LBRACKET : TokenType.RBRACKET, char, startPos, this.currentPos());
+        continue;
+      }
+
       if (char === ')') {
         this.advance();
         this.addToken(TokenType.RPAREN, ')', startPos, this.currentPos());
@@ -367,6 +373,17 @@ export class Tokenizer {
       }
     }
 
+    if (this.isIdentifierStart(this.peek())) {
+      let unit = '';
+      while (!this.isAtEnd() && this.isIdentifierPart(this.peek())) unit += this.advance();
+      if (/^(?:ms|s|m|h|d|w|M|q|y|millisecond|second|minute|hour|day|week|month|quarter|year)s?$/.test(unit) || unit === 'log10') {
+        this.addToken(TokenType.IDENTIFIER, value + unit, startPos, this.currentPos());
+        return;
+      }
+      this.addToken(TokenType.UNKNOWN, value + unit, startPos, this.currentPos());
+      return;
+    }
+
     const endPos = this.currentPos();
     this.addToken(TokenType.NUMBER_LITERAL, value, startPos, endPos);
   }
@@ -375,6 +392,14 @@ export class Tokenizer {
     let value = '';
     while (!this.isAtEnd() && this.isIdentifierPart(this.peek())) {
       value += this.advance();
+    }
+
+    if (/^(?:p|perc)$/i.test(value) && this.isDigit(this.peek())) {
+      while (!this.isAtEnd() && this.isDigit(this.peek())) value += this.advance();
+      if (this.peek() === '.' && this.isDigit(this.peek(1))) {
+        value += this.advance();
+        while (!this.isAtEnd() && this.isDigit(this.peek())) value += this.advance();
+      }
     }
 
     const upper = value.toUpperCase();

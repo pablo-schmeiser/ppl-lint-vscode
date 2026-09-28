@@ -41,6 +41,7 @@
     "build": "node esbuild.config.mjs --production",
     "watch": "node esbuild.config.mjs --watch",
     "test": "vitest run",
+    "test:conformance": "vitest run --config vitest.conformance.config.mts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src",
@@ -413,6 +414,8 @@
     "eslint": "^10.10.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

@@ -22,6 +22,15 @@ export const DEFAULT_KNOWN_COMMANDS: readonly string[] = [
   'rare',
   'grok',
   'patterns',
+  'lookup',
+  'rex',
+  'parse',
+  'regex',
+  'eventstats',
+  'streamstats',
+  'bin',
+  'timechart',
+  'join',
 ] as const;
 
 /**

@@ -1,5 +1,6 @@
 import {
   CoreDiagnostic,
+  JoinStageNode,
   PipelineNode,
   PplLinterOptions,
 } from '../types';
@@ -45,12 +46,20 @@ export class PplLinter {
       });
     }
 
-    for (const rule of this.registry.getAll()) {
-      rule.check(ast, context);
-    }
+    this.checkPipeline(ast, context);
 
     applyCompatibilityExceptions(ast, context, version);
 
     return context.diagnostics;
+  }
+
+  private checkPipeline(ast: PipelineNode, context: DefaultRuleContext): void {
+    for (const rule of this.registry.getAll()) rule.check(ast, context);
+    for (const stage of ast.stages) {
+      if (stage.type === 'JoinStage') {
+        const dataset = (stage as JoinStageNode).dataset;
+        if (dataset?.type === 'Pipeline') this.checkPipeline(dataset, context);
+      }
+    }
   }
 }

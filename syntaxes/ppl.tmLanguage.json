@@ -6,9 +6,10 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#backtick_identifiers" },
+    { "include": "#functions" },
     { "include": "#keywords" },
     { "include": "#pipe_operator" },
-    { "include": "#functions" },
+    { "include": "#field_references" },
     { "include": "#operators" },
     { "include": "#constants" }
   ],
@@ -61,11 +62,34 @@
       "patterns": [
         {
           "name": "keyword.control.ppl",
-          "match": "(?i)\\b(source|search|where|stats|fields|eval|sort|rename|dedup|head|top|rare|grok|patterns|by|as)\\b"
+          "match": "(?i)^\\s*(source|search)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.ppl" }
+          }
+        },
+        {
+          "match": "(?i)(?<=\\[)[ \\t]*(source|search)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.ppl" }
+          }
+        },
+        {
+          "match": "(?i)(?<=\\|)[ \\t]*(where|stats|eventstats|streamstats|fields|table|eval|sort|rename|dedup|head|top|rare|grok|patterns|parse|rex|regex|lookup|join|fillnull|flatten|expand|trendline|timechart|bin|spath|replace|reverse)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.ppl" }
+          }
         },
         {
           "name": "keyword.operator.logical.ppl",
-          "match": "(?i)\\b(and|or|not|in|like|isnull|isnotnull)\\b"
+          "match": "(?i)\\b(and|or|not|in|like|rlike|between|is\\s+not|is)\\b"
+        },
+        {
+          "name": "keyword.other.ppl",
+          "match": "(?i)\\b(by|as|on|replace|append|output|left|right|inner|outer|semi|anti|asc|desc|nulls|first|last|interval|from|else)\\b"
+        },
+        {
+          "name": "variable.parameter.ppl",
+          "match": "(?i)\\b(?:field|mode|max_match|offset_field|window|current|global|bucket_nullable|reset_before|reset_after|type|overwrite|max|keepempty|consecutive|span|limit|useother|usenull|nullstr|timefield|aligntime|start|end)\\b(?=\\s*=)"
         }
       ]
     },
@@ -73,11 +97,23 @@
       "name": "keyword.operator.pipe.ppl",
       "match": "\\|"
     },
+    "field_references": {
+      "patterns": [
+        {
+          "name": "variable.other.ppl",
+          "match": "(?<![\\w@])@[a-zA-Z_][\\w.]*(?![\\w.])"
+        }
+      ]
+    },
     "functions": {
       "patterns": [
         {
           "name": "support.function.ppl",
-          "match": "(?i)\\b(count|avg|sum|min|max|var_pop|var_samp|stddev_pop|stddev_samp|percentile|abs|ceil|ceiling|floor|round|sqrt|cbrt|exp|ln|log|log10|log2|pow|power|lower|upper|trim|ltrim|rtrim|concat|concat_ws|length|substr|substring|replace|regexp_extract|now|current_timestamp|date_format|date_add|date_sub|year|month|day|hour|minute|second|if|case|coalesce|isnull|isnotnull|nullif|md5|sha1|sha256|cast|typeof)\\b(?=\\s*\\()"
+          "match": "(?i)\\b(?:perc|p)\\d+(?:\\.\\d+)?(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.ppl",
+          "match": "(?i)\\b(count|avg|sum|min|max|dc|distinct_count|distinct_count_approx|first|last|list|values|take|median|earliest|latest|var_pop|var_samp|stddev_pop|stddev_samp|percentile|percentile_approx|str|num|ip|auto|abs|ceil|ceiling|floor|round|sqrt|cbrt|exp|ln|log|log10|log2|pow|power|lower|upper|trim|ltrim|rtrim|concat|concat_ws|length|substr|substring|replace|regexp_replace|regexp_extract|regexp_match|now|current_timestamp|timestampadd|timestampdiff|from_unixtime|unix_timestamp|convert_tz|date_format|date_add|date_sub|adddate|date|dayname|year|month|day|hour|minute|second|if|ifnull|case|coalesce|isnull|isnotnull|ispresent|isblank|isempty|nullif|like|ilike|position|cidrmatch|geoip|span|md5|sha1|sha256|cast|typeof)\\b(?=\\s*\\()"
         }
       ]
     },
@@ -95,6 +131,14 @@
     },
     "constants": {
       "patterns": [
+        {
+          "name": "constant.numeric.logarithmic.ppl",
+          "match": "\\b\\d+(?:\\.\\d+)?log10\\b"
+        },
+        {
+          "name": "constant.numeric.duration.ppl",
+          "match": "\\b\\d+(?:\\.\\d+)?(?:ms|milliseconds?|seconds?|minutes?|hours?|days?|weeks?|months?|quarters?|years?|s|m|h|d|w|M|q|y)\\b"
+        },
         {
           "name": "constant.language.boolean.ppl",
           "match": "(?i)\\b(true|false)\\b"

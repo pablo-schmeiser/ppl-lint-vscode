@@ -37,6 +37,8 @@ TOML extraction currently handles section headers, dotted bare keys, and quoted 
 - 📖 **Command Documentation Hovers**: Hover over any PPL command (`where`, `stats`, `eval`, `dedup`, `sort`, `rename`, `grok`, etc.) to view syntax templates, descriptions, and official OpenSearch documentation links.
 - 🎨 **TextMate Syntax Highlighting**: Rich colorization for commands, functions, operators, comments, and identifiers.
 
+The PPL TextMate grammar colors standalone `.ppl`, `.pplquery`, and `.query` files. It includes OpenSearch 3.5 commands such as `lookup`, `rex`, and `streamstats`, their option names, common aggregation/date/IP functions, `@timestamp`-style fields, and interval literals such as `5m`. YAML monitor queries receive diagnostics through extraction but retain YAML highlighting; TextMate coloring does not imply that a command is fully validated by the AST. The syntax names follow the [OpenSearch 3.5 command reference](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/commands/index/) and [function reference](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/). The monitor-specific `lookup ... OUTPUT ...` clause is colored but is not documented in the 3.5 lookup syntax, so verify it against the target cluster.
+
 ---
 
 ## Standard Diagnostic Rules Catalog
@@ -54,9 +56,13 @@ TOML extraction currently handles section headers, dotted bare keys, and quoted 
 | **`PPL009`** | `UnverifiedVersion` | `warning` | Selected version is newer than the 3.5 baseline. |
 | **`PPL010`** | `UnsupportedVersion` | `error` | Selected version is invalid or older than 3.5. |
 
-Structured validation currently covers `source`/`search`, `where`, `fields`, `stats`, `eval`, `sort`, `rename`, `head`, and the count-plus-fields form of `dedup`. Other recognized stages are reported as unverified by PPL008. Disable PPL008 for a workspace with `"pplLinter.rules": { "PPL008": "off" }` if a known valid query uses one of these stages. Custom commands remain unverified even when listed in `customCommands`.
+Structured validation covers `source`/`search`, `where`, `fields`, `stats`, `eventstats`, `streamstats`, `eval`, `sort`, `rename`, `head`, `dedup`, `lookup`, `join` with subqueries, `rex`, `parse`, `regex`, `bin`, and `timechart` for the forms exercised by the conformance suite. Other recognized stages are reported as unverified by PPL008. Disable PPL008 for a workspace with `"pplLinter.rules": { "PPL008": "off" }` if a known valid query uses one of these stages. Custom commands remain unverified even when listed in `customCommands`.
 
 Target OpenSearch 3.5 with `pplLinter.openSearchVersion` (default `"3.5"`). Later versions use the same baseline checks and emit PPL009 until their behavior is verified. Server-specific compatibility checks belong in `src/core/compatibility.ts` with a reproduced query, affected version range, and reference. No server-bug exceptions have yet been verified in this repository.
+
+### Documentation conformance tests
+
+Run `pnpm run test:conformance` to run only the [OpenSearch 3.5 conformance suite](test/integration/opensearch-3.5-conformance.test.ts); it also runs as part of `pnpm test`. Its cases and source-page URLs come from the [PPL commands](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/commands/index/) and [functions](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/) references. Positive cases expect no diagnostics; negative cases require a real error, not merely "unknown command" or "validation not implemented." It tests user-visible acceptance, not AST shapes. `dedup consecutive=true` requires the legacy SQL engine, and some join types require a cluster setting; these examples are configuration-dependent. This does not execute queries against OpenSearch or prove runtime behavior.
 
 ---
 

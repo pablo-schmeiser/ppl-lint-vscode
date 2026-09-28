@@ -63,6 +63,8 @@ export enum TokenType {
   COMMA = 'COMMA',               // ,
   LPAREN = 'LPAREN',             // (
   RPAREN = 'RPAREN',             // )
+  LBRACKET = 'LBRACKET',         // [
+  RBRACKET = 'RBRACKET',         // ]
 
   // Literals & Identifiers
   IDENTIFIER = 'IDENTIFIER',         // accounts, status, etc.
@@ -100,6 +102,10 @@ export type ASTNodeType =
   | 'HeadStage'
   | 'DedupStage'
   | 'GenericStage'
+  | 'LookupStage'
+  | 'PatternStage'
+  | 'OptionStage'
+  | 'JoinStage'
   | 'BinaryExpression'
   | 'UnaryExpression'
   | 'FunctionCall'
@@ -202,6 +208,39 @@ export interface RenameStageNode extends PipeStageNode {
 export interface GenericStageNode extends PipeStageNode {
   type: 'GenericStage';
   rawArguments: string;
+}
+
+export interface LookupStageNode extends PipeStageNode {
+  type: 'LookupStage';
+  index: IdentifierNode;
+  mappings: Array<{ lookup: IdentifierNode; source?: IdentifierNode }>;
+  outputMode?: 'replace' | 'append';
+  outputs: Array<{ input: IdentifierNode; output?: IdentifierNode }>;
+}
+
+export interface PatternStageNode extends PipeStageNode {
+  type: 'PatternStage';
+  field: IdentifierNode;
+  pattern: LiteralNode;
+  mode?: string;
+  options: Record<string, string | number>;
+}
+
+export interface OptionStageNode extends PipeStageNode {
+  type: 'OptionStage';
+  options: Record<string, LiteralNode | IdentifierNode>;
+  field?: IdentifierNode;
+  aggregation?: FunctionCallNode;
+  groupBy?: IdentifierNode;
+}
+
+export interface JoinStageNode extends PipeStageNode {
+  type: 'JoinStage';
+  joinType?: string;
+  options: Record<string, string | number | boolean>;
+  criteria?: ExpressionNode;
+  fields: IdentifierNode[];
+  dataset?: IdentifierNode | PipelineNode;
 }
 
 export interface ErrorNode extends BaseASTNode {

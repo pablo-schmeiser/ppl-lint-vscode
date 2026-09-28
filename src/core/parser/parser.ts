@@ -8,9 +8,13 @@ import {
   GenericStageNode,
   HeadStageNode,
   IdentifierNode,
+  JoinStageNode,
   LiteralNode,
+  LookupStageNode,
+  OptionStageNode,
   PipelineNode,
   PipeStageNode,
+  PatternStageNode,
   RenameStageNode,
   SortStageNode,
   SourceStageNode,
@@ -225,6 +229,12 @@ export class PplParser {
     const cmdToken = this.peek();
     const cmdName = cmdToken.value.toLowerCase();
 
+    if (cmdName === 'join' ||
+        (['inner', 'left', 'right', 'full', 'cross'].includes(cmdName) &&
+         ['join', 'semi', 'anti'].includes(this.tokens[this.current + 1]?.value.toLowerCase()))) {
+      return this.parseJoinStage();
+    }
+
     if (cmdToken.type === TokenType.WHERE || cmdName === 'where') {
       return this.parseWhereStage();
     }
@@ -232,6 +242,8 @@ export class PplParser {
     if (cmdToken.type === TokenType.STATS || cmdName === 'stats') {
       return this.parseStatsStage();
     }
+
+    if (cmdName === 'eventstats' || cmdName === 'streamstats') return this.parseStatsStage();
 
     if (cmdToken.type === TokenType.FIELDS || cmdName === 'fields') {
       return this.parseFieldsStage();
@@ -256,6 +268,10 @@ export class PplParser {
     if (cmdToken.type === TokenType.DEDUP || cmdName === 'dedup') {
       return this.parseDedupStage();
     }
+
+    if (cmdName === 'lookup') return this.parseLookupStage();
+    if (['rex', 'parse', 'regex'].includes(cmdName)) return this.parsePatternStage();
+    if (cmdName === 'bin' || cmdName === 'timechart') return this.parseOptionStage();
 
     // Generic stage for other commands (eval, dedup, head, top, rare, grok, etc.)
     return this.parseGenericStage();
@@ -282,15 +298,41 @@ export class PplParser {
   }
 
   private parseStatsStage(): StatsStageNode {
-    const startToken = this.advance(); // consume 'stats'
+    const startToken = this.advance();
+    const command = startToken.value.toLowerCase();
+    const allowed = command === 'streamstats'
+      ? ['bucket_nullable', 'current', 'window', 'global', 'reset_before', 'reset_after']
+      : ['bucket_nullable'];
+    while (allowed.includes(this.peek().value.toLowerCase()) && this.tokens[this.current + 1]?.type === TokenType.ASSIGN) {
+      const option = this.advance().value.toLowerCase();
+      this.advance();
+      if (option === 'window') {
+        if (!this.match(TokenType.NUMBER_LITERAL) || !Number.isInteger(Number(this.previous().value))) {
+          this.recordError('window requires an integer', this.peek().span);
+        }
+      } else if (option.startsWith('reset_')) {
+        this.parseExpression();
+      } else if (!this.match(TokenType.BOOLEAN_LITERAL)) {
+        this.recordError(`${option} requires a boolean value`, this.peek().span);
+      }
+    }
     const aggregations = this.parseStatsAggregations();
     let groupBy: IdentifierNode[] = [];
 
     // Optional: 'by' <field-list>
     if (this.match(TokenType.BY)) {
-      groupBy = this.parseCommaSeparatedFields(
-        "Expected field identifier in stats 'by' clause"
-      );
+      do {
+        const expr = this.parsePrimary();
+        if (expr.type === 'Identifier' || expr.type === 'FunctionCall') {
+          groupBy.push(createIdentifierNode(
+            expr.type === 'Identifier' ? (expr as IdentifierNode).name : (expr as FunctionCallNode).functionName,
+            false, expr.span
+          ));
+        } else {
+          this.recordError("Expected field or span expression in stats 'by' clause", expr.span);
+        }
+        if (this.match(TokenType.AS)) this.parseFieldIdentifier('Expected alias after as');
+      } while (this.match(TokenType.COMMA));
     }
 
     const endPos = this.previous().span.end;
@@ -299,7 +341,7 @@ export class PplParser {
       end: endPos,
     };
 
-    return createStatsStageNode(aggregations, groupBy, span);
+    return { ...createStatsStageNode(aggregations, groupBy, span), commandName: command };
   }
 
   private parseStatsAggregations(): FunctionCallNode[] {
@@ -309,6 +351,7 @@ export class PplParser {
       const expr = this.parsePrimary();
       if (expr.type === 'FunctionCall') {
         aggregations.push(expr as FunctionCallNode);
+        if (this.match(TokenType.AS)) this.parseFieldIdentifier('Expected aggregation alias after as');
       } else {
         this.recordError(
           "Expected aggregation function (e.g. 'count()', 'avg(field)') in stats command",
@@ -349,16 +392,46 @@ export class PplParser {
   private parseSortStage(): SortStageNode {
     const startToken = this.advance(); // consume 'sort'
     let direction: '+' | '-' | undefined = undefined;
-
-    if (this.match(TokenType.PLUS)) {
-      direction = '+';
-    } else if (this.match(TokenType.MINUS)) {
-      direction = '-';
+    const fields: IdentifierNode[] = [];
+    let notation: 'prefix' | 'suffix' | undefined;
+    if (this.check(TokenType.NUMBER_LITERAL)) {
+      const count = this.advance();
+      if (!Number.isInteger(Number(count.value))) this.recordError('Sort count must be an integer', count.span);
+      if (this.isAtEnd() || this.check(TokenType.PIPE)) {
+        this.recordError('Expected field name in sort command after count', count.span);
+      }
     }
 
-    const fields = this.parseCommaSeparatedFields(
-      'Expected field name in sort command'
-    );
+    while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      const prefix = this.match(TokenType.PLUS) ? '+' : this.match(TokenType.MINUS) ? '-' : undefined;
+      if (prefix) {
+        if (notation === 'suffix') this.recordError('Cannot mix prefix and suffix sort directions', this.previous().span);
+        notation = 'prefix';
+        direction ??= prefix;
+      }
+      let field: IdentifierNode | null;
+      if (['auto', 'str', 'ip', 'num'].includes(this.peek().value.toLowerCase()) &&
+          this.tokens[this.current + 1]?.type === TokenType.LPAREN) {
+        const wrapper = this.advance();
+        this.advance();
+        field = this.parseFieldIdentifier('Expected field in sort type wrapper');
+        if (!this.match(TokenType.RPAREN)) this.recordError('Expected closing parenthesis in sort type wrapper', this.peek().span);
+        if (field) field = createIdentifierNode(field.name, field.isBacktickQuoted, {
+          start: wrapper.span.start, end: this.previous().span.end,
+        });
+      } else {
+        field = this.parseFieldIdentifier('Expected field name in sort command');
+      }
+      if (!field) break;
+      fields.push(field);
+      const suffix = this.peek().value.toLowerCase();
+      if (['asc', 'desc', 'a', 'd'].includes(suffix)) {
+        if (notation === 'prefix') this.recordError('Cannot mix prefix and suffix sort directions', this.peek().span);
+        notation = 'suffix';
+        this.advance();
+      }
+      if (!this.match(TokenType.COMMA)) break;
+    }
 
     const endPos = this.previous().span.end;
     const span: Span = {
@@ -514,7 +587,24 @@ export class PplParser {
   private parseDedupStage(): DedupStageNode {
     const startToken = this.advance();
     const count = this.check(TokenType.NUMBER_LITERAL) ? Number(this.advance().value) : undefined;
-    const fields = this.parseCommaSeparatedFields('Expected field name in dedup command', false);
+    const fields: IdentifierNode[] = [];
+    while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      const option = this.peek().value.toLowerCase();
+      if (['keepempty', 'consecutive'].includes(option) && this.tokens[this.current + 1]?.type === TokenType.ASSIGN) break;
+      const field = this.parseFieldIdentifier('Expected field name in dedup command');
+      if (!field) break;
+      fields.push(field);
+      if (!this.match(TokenType.COMMA)) break;
+    }
+    while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      const option = this.peek().value.toLowerCase();
+      if (!['keepempty', 'consecutive'].includes(option)) break;
+      this.advance();
+      if (!this.match(TokenType.ASSIGN) || !this.match(TokenType.BOOLEAN_LITERAL)) {
+        this.recordError(`Expected boolean value for ${option}`, this.peek().span);
+        break;
+      }
+    }
     if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
       this.recordError('Unexpected argument in dedup command', this.peek().span);
       this.synchronizeToNextPipe();
@@ -523,6 +613,213 @@ export class PplParser {
       start: startToken.span.start,
       end: this.previous().span.end,
     });
+  }
+
+  private parseLookupStage(): LookupStageNode {
+    const start = this.advance();
+    const index = this.parseFieldIdentifier('Expected lookup index');
+    const mappings: LookupStageNode['mappings'] = [];
+    const outputs: LookupStageNode['outputs'] = [];
+    let outputMode: LookupStageNode['outputMode'];
+    while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      const mode = this.peek().value.toLowerCase();
+      if (mode === 'replace' || mode === 'append') {
+        outputMode = mode;
+        this.advance();
+        break;
+      }
+      const lookup = this.parseFieldIdentifier('Expected lookup mapping field');
+      if (!lookup) break;
+      const source = this.match(TokenType.AS) ? this.parseFieldIdentifier('Expected source mapping field') ?? undefined : undefined;
+      mappings.push({ lookup, source });
+      if (!this.match(TokenType.COMMA) && !['replace', 'append'].includes(this.peek().value.toLowerCase())) break;
+    }
+    if (outputMode) {
+      do {
+        const input = this.parseFieldIdentifier('Expected lookup output field');
+        if (!input) break;
+        const output = this.match(TokenType.AS) ? this.parseFieldIdentifier('Expected output alias') ?? undefined : undefined;
+        outputs.push({ input, output });
+      } while (this.match(TokenType.COMMA));
+    }
+    if (!index || mappings.length === 0 || (outputMode && outputs.length === 0)) {
+      this.recordError('Lookup requires an index, mapping field, and any selected output fields', start.span);
+    }
+    if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      this.recordError('Unexpected lookup argument', this.peek().span);
+      this.synchronizeToNextPipe();
+    }
+    return {
+      type: 'LookupStage', commandName: 'lookup', index: index ?? createIdentifierNode('', false, start.span),
+      mappings, outputMode, outputs, span: { start: start.span.start, end: this.previous().span.end },
+    };
+  }
+
+  private parsePatternStage(): PatternStageNode {
+    const start = this.advance();
+    const command = start.value.toLowerCase();
+    const options: PatternStageNode['options'] = {};
+    let mode: string | undefined;
+    if (command === 'rex') {
+      while (['field', 'mode'].includes(this.peek().value.toLowerCase()) &&
+             this.tokens[this.current + 1]?.type === TokenType.ASSIGN) {
+        const option = this.advance().value.toLowerCase();
+        this.advance();
+        const value = this.advance();
+        options[option] = value.value;
+        if (option === 'mode') mode = value.value.toLowerCase();
+      }
+    }
+    const field = command === 'rex'
+      ? createIdentifierNode(String(options.field ?? ''), false, start.span)
+      : this.parseFieldIdentifier(`Expected field after ${command}`);
+    if (command === 'regex' && !this.match(TokenType.ASSIGN, TokenType.NOT_EQUALS)) {
+      this.recordError('Expected = or != after regex field', this.peek().span);
+    }
+    const patternToken = this.peek();
+    const pattern = this.match(TokenType.STRING_LITERAL)
+      ? createLiteralNode(patternToken.value, patternToken.value, patternToken.span)
+      : createLiteralNode('', '', patternToken.span);
+    if (patternToken.type !== TokenType.STRING_LITERAL || !field?.name) {
+      this.recordError(`${command} requires a field and quoted pattern`, patternToken.span);
+    }
+    if (command === 'rex') {
+      while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
+        const option = this.peek().value.toLowerCase();
+        if (!['max_match', 'offset_field'].includes(option) || this.tokens[this.current + 1]?.type !== TokenType.ASSIGN) break;
+        this.advance();
+        this.advance();
+        const value = this.advance();
+        options[option] = value.value;
+        if (option === 'max_match' && (!Number.isInteger(Number(value.value)) || Number(value.value) < 0)) {
+          this.recordError('max_match requires a nonnegative integer', value.span);
+        }
+      }
+      if (mode !== 'sed' && !/\(\?<\w+>/.test(String(pattern.value))) {
+        this.recordError('rex extract pattern requires a named capture group', patternToken.span);
+      }
+    }
+    if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      this.recordError(`Unexpected ${command} argument`, this.peek().span);
+      this.synchronizeToNextPipe();
+    }
+    return {
+      type: 'PatternStage', commandName: command, field: field ?? createIdentifierNode('', false, start.span),
+      pattern, mode, options, span: { start: start.span.start, end: this.previous().span.end },
+    };
+  }
+
+  private parseOptionStage(): OptionStageNode {
+    const start = this.advance();
+    const command = start.value.toLowerCase();
+    const options: OptionStageNode['options'] = {};
+    let field: IdentifierNode | undefined;
+    let aggregation: FunctionCallNode | undefined;
+    let groupBy: IdentifierNode | undefined;
+    if (command === 'bin') field = this.parseFieldIdentifier('Expected field after bin') ?? undefined;
+    const allowed = command === 'bin'
+      ? ['span', 'aligntime', 'start', 'end']
+      : ['timefield', 'span', 'limit', 'useother', 'usenull', 'nullstr'];
+    while (allowed.includes(this.peek().value.toLowerCase()) && this.tokens[this.current + 1]?.type === TokenType.ASSIGN) {
+      const name = this.advance().value.toLowerCase();
+      this.advance();
+      const value = this.peek();
+      if (![TokenType.IDENTIFIER, TokenType.STRING_LITERAL, TokenType.NUMBER_LITERAL, TokenType.BOOLEAN_LITERAL].includes(value.type)) {
+        this.recordError(`Expected value for ${name}`, value.span);
+        break;
+      }
+      this.advance();
+      options[name] = value.type === TokenType.IDENTIFIER
+        ? createIdentifierNode(value.value, false, value.span)
+        : createLiteralNode(value.value, value.value, value.span);
+      if (['limit', 'start', 'end'].includes(name) && !Number.isFinite(Number(value.value))) {
+        this.recordError(`${name} requires a number`, value.span);
+      }
+      if (['useother', 'usenull'].includes(name) && value.type !== TokenType.BOOLEAN_LITERAL) {
+        this.recordError(`${name} requires a boolean`, value.span);
+      }
+    }
+    if (command === 'timechart') {
+      const expr = this.parsePrimary();
+      if (expr.type === 'FunctionCall') aggregation = expr as FunctionCallNode;
+      else this.recordError('timechart requires one aggregation function', expr.span);
+      if (this.match(TokenType.BY)) groupBy = this.parseFieldIdentifier('Expected timechart group field') ?? undefined;
+      if (this.match(TokenType.COMMA)) this.recordError('timechart supports only one aggregation function', this.previous().span);
+    } else if (!field) {
+      this.recordError('bin requires a field', start.span);
+    }
+    if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      this.recordError(`Unexpected ${command} argument`, this.peek().span);
+      this.synchronizeToNextPipe();
+    }
+    return { type: 'OptionStage', commandName: command, options, field, aggregation, groupBy,
+      span: { start: start.span.start, end: this.previous().span.end } };
+  }
+
+  private parseJoinStage(): JoinStageNode {
+    const start = this.peek();
+    let joinType: string | undefined;
+    if (this.peek().value.toLowerCase() !== 'join') {
+      joinType = this.advance().value.toLowerCase();
+      if (['semi', 'anti'].includes(this.peek().value.toLowerCase())) joinType += ` ${this.advance().value.toLowerCase()}`;
+    }
+    if (this.peek().value.toLowerCase() !== 'join') this.recordError('Expected join command', this.peek().span);
+    else this.advance();
+    const options: JoinStageNode['options'] = {};
+    while (['type', 'overwrite', 'max', 'left', 'right'].includes(this.peek().value.toLowerCase()) &&
+           this.tokens[this.current + 1]?.type === TokenType.ASSIGN) {
+      const option = this.advance().value.toLowerCase();
+      this.advance();
+      const value = this.advance();
+      options[option] = value.value;
+      if (option === 'type') joinType = value.value.toLowerCase();
+      if (option === 'max' && (!Number.isInteger(Number(value.value)) || Number(value.value) < 0)) {
+        this.recordError('join max requires a nonnegative integer', value.span);
+      }
+      if (option === 'overwrite' && value.type !== TokenType.BOOLEAN_LITERAL) {
+        this.recordError('join overwrite requires a boolean', value.span);
+      }
+    }
+    let criteria: ExpressionNode | undefined;
+    const fields: IdentifierNode[] = [];
+    if (['on', 'where'].includes(this.peek().value.toLowerCase())) {
+      this.advance();
+      criteria = this.parseExpression();
+    } else if (!this.check(TokenType.LBRACKET) && !this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      do {
+        const field = this.parseFieldIdentifier('Expected join field');
+        if (field) fields.push(field);
+        else break;
+      } while (this.match(TokenType.COMMA));
+    }
+    let dataset: JoinStageNode['dataset'];
+    if (this.match(TokenType.LBRACKET)) {
+      const nestedStart = this.current;
+      let depth = 1;
+      while (!this.isAtEnd() && depth > 0) {
+        if (this.peek().type === TokenType.LBRACKET) depth++;
+        if (this.peek().type === TokenType.RBRACKET) depth--;
+        if (depth) this.advance();
+      }
+      if (depth > 0) this.recordError("Unclosed join subquery: expected ']'", start.span);
+      const inner = this.tokens.slice(nestedStart, this.current);
+      const eofSpan = this.peek().span;
+      const subquery = new PplParser([...inner, { type: TokenType.EOF, value: '', span: eofSpan }]).parse();
+      dataset = subquery;
+      this.match(TokenType.RBRACKET);
+    } else if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      dataset = this.parseFieldIdentifier('Expected join dataset') ?? undefined;
+    }
+    if (this.match(TokenType.AS)) this.parseFieldIdentifier('Expected dataset alias');
+    if (!dataset || (!criteria && fields.length === 0 && !('left' in options))) {
+      this.recordError('join requires a dataset and join fields or criteria', start.span);
+    }
+    if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      this.recordError('Unexpected join argument', this.peek().span);
+      this.synchronizeToNextPipe();
+    }
+    return { type: 'JoinStage', commandName: 'join', joinType, options, criteria, fields, dataset,
+      span: { start: start.span.start, end: this.previous().span.end } };
   }
 
   private parseGenericStage(): GenericStageNode {
@@ -723,7 +1020,9 @@ export class PplParser {
 
   private parseFunctionCallOrIdentifier(): ExpressionNode | null {
     // Function call or Identifier or Keyword acting as identifier
-    if (this.isFieldIdentifierToken(this.peek(), true)) {
+    if (this.isFieldIdentifierToken(this.peek(), true) ||
+        (this.tokens[this.current + 1]?.type === TokenType.LPAREN &&
+         [TokenType.EVAL, TokenType.LIKE, TokenType.IN].includes(this.peek().type))) {
       const token = this.advance();
 
       // Check if next token is '(' -> Function call
@@ -766,8 +1065,17 @@ export class PplParser {
           // e.g. count(*)
           const starTok = this.previous();
           args.push(createIdentifierNode('*', false, starTok.span));
+        } else if (this.peek().value.toLowerCase() === 'interval') {
+          const start = this.advance();
+          if (this.check(TokenType.NUMBER_LITERAL)) this.advance();
+          if (this.peek().type === TokenType.IDENTIFIER) this.advance();
+          args.push(createIdentifierNode('interval', false, { start: start.span.start, end: this.previous().span.end }));
         } else {
           args.push(this.parseExpression());
+          if (['from', 'else'].includes(this.peek().value.toLowerCase())) {
+            this.advance();
+            args.push(this.parseExpression());
+          }
         }
       } while (this.match(TokenType.COMMA));
     }

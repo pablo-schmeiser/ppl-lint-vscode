@@ -5,6 +5,7 @@ import {
   FunctionCallNode,
   LintRule,
   PipelineNode,
+  OptionStageNode,
   RuleContext,
   StatsStageNode,
   UnaryExpressionNode,
@@ -38,7 +39,7 @@ export const PPL005_UnknownFunction: LintRule = {
       if (expr.type === 'FunctionCall') {
         const func = expr as FunctionCallNode;
         const name = func.functionName.toLowerCase();
-        if (!knownSet.has(name)) {
+        if (!knownSet.has(name) && !/^(?:p|perc)\d+(?:\.\d+)?$/i.test(name)) {
           const suggestion = findClosestMatch(name, knownList, 3);
           const message = suggestion
             ? `Unknown function '${func.functionName}'. Did you mean '${suggestion}'?`
@@ -96,6 +97,8 @@ export const PPL005_UnknownFunction: LintRule = {
         for (const assignment of (stage as EvalStageNode).assignments) {
           inspectExpression(assignment.value);
         }
+      } else if (stage.type === 'OptionStage') {
+        inspectExpression((stage as OptionStageNode).aggregation);
       }
     }
   },

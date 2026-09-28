@@ -28,6 +28,10 @@
     "json"
   ],
   "activationEvents": [
+    "onLanguage:yaml",
+    "onLanguage:toml",
+    "onLanguage:json",
+    "onLanguage:jsonc",
     "workspaceContains:**/*.ppl",
     "workspaceContains:**/*.yaml",
     "workspaceContains:**/*.yml",
@@ -39,7 +43,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "compile": "tsc -p ./ --noEmit",
     "package": "npx @vscode/vsce package --no-dependencies"
   },
@@ -85,6 +89,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable PPL linting globally."
+        },
+        "pplLinter.openSearchVersion": {
+          "type": "string",
+          "default": "3.5",
+          "description": "Target OpenSearch version (major.minor or major.minor.patch, minimum 3.5). Newer unverified versions use the 3.5 baseline with a warning."
         },
         "pplLinter.standalone": {
           "type": "object",
@@ -256,7 +265,10 @@
             "PPL004": "error",
             "PPL005": "warning",
             "PPL006": "warning",
-            "PPL007": "warning"
+            "PPL007": "warning",
+            "PPL008": "error",
+            "PPL009": "warning",
+            "PPL010": "error"
           },
           "properties": {
             "PPL001": {
@@ -335,6 +347,39 @@
               ],
               "default": "warning",
               "description": "PPL007: Assignment In Boolean Condition"
+            },
+            "PPL008": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL008: Validation not implemented for raw-argument stages"
+            },
+            "PPL009": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "warning",
+              "description": "PPL009: Selected OpenSearch version has not been verified"
+            },
+            "PPL010": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL010: Selected OpenSearch version is invalid or older than 3.5"
             }
           }
         },
@@ -367,7 +412,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "prettier": "^3.9.6",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^5.0.0"
   }
 }

@@ -38,32 +38,14 @@ export class PplCodeActionProvider implements vscode.CodeActionProvider {
         }
       }
 
-      // PPL002: Missing source
-      if (code === 'PPL002') {
-        const action = new vscode.CodeAction(
-          "Prepend 'source='",
-          vscode.CodeActionKind.QuickFix
-        );
-        action.diagnostics = [diagnostic];
-        action.isPreferred = true;
-        action.edit = new vscode.WorkspaceEdit();
-        action.edit.insert(document.uri, diagnostic.range.start, 'source=');
-        actions.push(action);
-      }
-
       // PPL007: Assignment in condition
       if (code === 'PPL007') {
         const textAtRange = document.getText(diagnostic.range);
         const eqIdx = textAtRange.indexOf('=');
         if (eqIdx >= 0) {
-          const eqPos = new vscode.Position(
-            diagnostic.range.start.line,
-            diagnostic.range.start.character + eqIdx
-          );
-          const eqEndPos = new vscode.Position(
-            diagnostic.range.start.line,
-            diagnostic.range.start.character + eqIdx + 1
-          );
+          const eqOffset = document.offsetAt(diagnostic.range.start) + eqIdx;
+          const eqPos = document.positionAt(eqOffset);
+          const eqEndPos = document.positionAt(eqOffset + 1);
 
           const action = new vscode.CodeAction(
             "Replace '=' with '=='",

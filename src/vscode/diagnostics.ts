@@ -17,6 +17,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection('ppl');
     this.config = getPplConfig();
     this.linter = new PplLinter({
+      openSearchVersion: this.config.openSearchVersion,
       rules: this.config.rules,
       customCommands: this.config.customCommands,
       customFunctions: this.config.customFunctions,
@@ -27,6 +28,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
   public reloadConfig(): void {
     this.config = getPplConfig();
     this.linter = new PplLinter({
+      openSearchVersion: this.config.openSearchVersion,
       rules: this.config.rules,
       customCommands: this.config.customCommands,
       customFunctions: this.config.customFunctions,
@@ -95,6 +97,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
           const coreDiagnostics = this.linter.lint(query.rawText);
           for (const coreDiag of coreDiagnostics) {
             const hostRange = query.sourceMap.translate(coreDiag.span);
+            if (!hostRange) continue;
             const vsDiag = this.createVsCodeDiagnostic(
               hostRange.start.line,
               hostRange.start.col,

@@ -1,9 +1,11 @@
 import {
   BinaryExpressionNode,
   ExpressionNode,
+  FunctionCallNode,
   LintRule,
   PipelineNode,
   RuleContext,
+  UnaryExpressionNode,
   WhereStageNode,
 } from '../../types';
 
@@ -30,7 +32,7 @@ export const PPL007_AssignmentInCondition: LintRule = {
             code: 'PPL007',
             message: "Assignment operator '=' used in boolean expression. Did you mean '=='?",
             severity: 'warning',
-            span: bin.span,
+            span: opSpan,
             data: {
               suggestion: '==',
               replaceSpan: opSpan,
@@ -40,6 +42,10 @@ export const PPL007_AssignmentInCondition: LintRule = {
 
         inspectExpression(bin.left);
         inspectExpression(bin.right);
+      } else if (expr.type === 'UnaryExpression') {
+        inspectExpression((expr as UnaryExpressionNode).argument);
+      } else if (expr.type === 'FunctionCall') {
+        for (const argument of (expr as FunctionCallNode).arguments) inspectExpression(argument);
       }
     }
 

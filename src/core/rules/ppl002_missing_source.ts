@@ -12,13 +12,6 @@ export const PPL002_MissingSource: LintRule = {
         message: "Pipeline must start with 'source=<index>' or 'search [source=]<index>'",
         severity: 'error',
         span: ast.source.span,
-        data: {
-          suggestion: 'source=',
-          replaceSpan: {
-            start: ast.source.span.start,
-            end: ast.source.span.start,
-          },
-        },
       });
     }
   },

@@ -98,6 +98,7 @@ export type ASTNodeType =
   | 'SortStage'
   | 'RenameStage'
   | 'HeadStage'
+  | 'DedupStage'
   | 'GenericStage'
   | 'BinaryExpression'
   | 'UnaryExpression'
@@ -157,6 +158,22 @@ export interface SourceStageNode extends PipeStageNode {
 export interface WhereStageNode extends PipeStageNode {
   type: 'WhereStage';
   condition: ExpressionNode;
+}
+
+export interface EvalStageNode extends PipeStageNode {
+  type: 'EvalStage';
+  assignments: Array<{ field: IdentifierNode; value: ExpressionNode }>;
+}
+
+export interface HeadStageNode extends PipeStageNode {
+  type: 'HeadStage';
+  count?: number;
+}
+
+export interface DedupStageNode extends PipeStageNode {
+  type: 'DedupStage';
+  count?: number;
+  fields: IdentifierNode[];
 }
 
 export interface StatsStageNode extends PipeStageNode {
@@ -235,6 +252,7 @@ export interface LintRule {
 }
 
 export interface PplLinterOptions {
+  openSearchVersion?: string;
   rules?: Record<string, DiagnosticSeverity>;
   customCommands?: string[];
   customFunctions?: string[];
@@ -258,7 +276,7 @@ export interface SourceCoordinateMap {
   /**
    * Translates a span in snippet-local coordinates to the host document coordinates.
    */
-  translate(snippetSpan: Span): HostRange;
+  translate(snippetSpan: Span): HostRange | undefined;
 }
 
 export interface ExtractedQuery {
@@ -292,6 +310,7 @@ export interface EmbeddedRuleConfig {
 
 export interface PplLinterConfig {
   enabled: boolean;
+  openSearchVersion: string;
   standalone: StandaloneConfig;
   embedded: EmbeddedRuleConfig[];
   customCommands: string[];

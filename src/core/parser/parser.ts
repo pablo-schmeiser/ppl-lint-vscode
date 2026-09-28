@@ -1,9 +1,12 @@
 import {
+  DedupStageNode,
   ErrorNode,
+  EvalStageNode,
   ExpressionNode,
   FieldsStageNode,
   FunctionCallNode,
   GenericStageNode,
+  HeadStageNode,
   IdentifierNode,
   LiteralNode,
   PipelineNode,
@@ -19,10 +22,13 @@ import {
 } from '../../types';
 import {
   createBinaryExpressionNode,
+  createDedupStageNode,
+  createEvalStageNode,
   createErrorNode,
   createFieldsStageNode,
   createFunctionCallNode,
   createGenericStageNode,
+  createHeadStageNode,
   createIdentifierNode,
   createLiteralNode,
   createPipelineNode,
@@ -61,6 +67,10 @@ export class PplParser {
     const sourceNode = this.parseSourceStage();
 
     const stages: PipeStageNode[] = [];
+
+    if (sourceNode.type === 'ErrorNode' && !this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      stages.push(this.parsePipeStage()!);
+    }
 
     while (!this.isAtEnd()) {
       if (this.match(TokenType.PIPE)) {
@@ -204,18 +214,6 @@ export class PplParser {
       startToken.span
     );
 
-    // If startToken is a pipe command (e.g. `where`), do not consume it; let subsequent loop parse it
-    if (
-      startToken.type === TokenType.WHERE ||
-      startToken.type === TokenType.STATS ||
-      startToken.type === TokenType.FIELDS ||
-      startToken.type === TokenType.SORT ||
-      startToken.type === TokenType.RENAME ||
-      startToken.type === TokenType.EVAL
-    ) {
-      // Don't consume; let caller handle as stage
-    }
-
     return err;
   }
 
@@ -245,6 +243,18 @@ export class PplParser {
 
     if (cmdToken.type === TokenType.RENAME || cmdName === 'rename') {
       return this.parseRenameStage();
+    }
+
+    if (cmdToken.type === TokenType.EVAL || cmdName === 'eval') {
+      return this.parseEvalStage();
+    }
+
+    if (cmdToken.type === TokenType.HEAD || cmdName === 'head') {
+      return this.parseHeadStage();
+    }
+
+    if (cmdToken.type === TokenType.DEDUP || cmdName === 'dedup') {
+      return this.parseDedupStage();
     }
 
     // Generic stage for other commands (eval, dedup, head, top, rare, grok, etc.)
@@ -449,6 +459,70 @@ export class PplParser {
       this.isBacktickQuoted(token),
       token.span
     );
+  }
+
+  private parseEvalStage(): EvalStageNode {
+    const startToken = this.advance();
+    const assignments: EvalStageNode['assignments'] = [];
+
+    while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
+      const field = this.parseFieldIdentifier('Expected field name in eval assignment');
+      if (!field) {
+        this.synchronizeToNextPipe();
+        break;
+      }
+      if (!this.match(TokenType.ASSIGN)) {
+        this.recordError("Expected '=' after eval field", this.peek().span);
+        this.synchronizeToNextPipe();
+        break;
+      }
+      const value = this.parseExpression();
+      assignments.push({ field, value });
+      if (this.check(TokenType.PIPE) || this.isAtEnd()) break;
+      if (!this.match(TokenType.COMMA)) {
+        this.recordError('Expected comma between eval assignments', this.peek().span);
+        this.synchronizeToNextPipe();
+        break;
+      }
+      if (this.check(TokenType.PIPE) || this.isAtEnd()) {
+        this.recordError('Expected assignment after comma', this.peek().span);
+      }
+    }
+
+    return createEvalStageNode(assignments, {
+      start: startToken.span.start,
+      end: this.previous().span.end,
+    });
+  }
+
+  private parseHeadStage(): HeadStageNode {
+    const startToken = this.advance();
+    let count: number | undefined;
+    if (this.check(TokenType.NUMBER_LITERAL)) {
+      count = Number(this.advance().value);
+    }
+    if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      this.recordError('Unexpected argument to head; expected a positive integer', this.peek().span);
+      this.synchronizeToNextPipe();
+    }
+    return createHeadStageNode(count, {
+      start: startToken.span.start,
+      end: this.previous().span.end,
+    });
+  }
+
+  private parseDedupStage(): DedupStageNode {
+    const startToken = this.advance();
+    const count = this.check(TokenType.NUMBER_LITERAL) ? Number(this.advance().value) : undefined;
+    const fields = this.parseCommaSeparatedFields('Expected field name in dedup command', false);
+    if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
+      this.recordError('Unexpected argument in dedup command', this.peek().span);
+      this.synchronizeToNextPipe();
+    }
+    return createDedupStageNode(count, fields, {
+      start: startToken.span.start,
+      end: this.previous().span.end,
+    });
   }
 
   private parseGenericStage(): GenericStageNode {

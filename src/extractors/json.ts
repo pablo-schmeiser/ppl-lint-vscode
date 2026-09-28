@@ -1,7 +1,7 @@
 import * as jsonc from 'jsonc-parser';
 import { minimatch } from 'minimatch';
 import { ExtractedQuery, StructuredExtractor } from '../types';
-import { LineMapping, LineOffsetSourceMap, offsetToPosition } from './sourcemap';
+import { LineMapping, LineOffsetSourceMap, offsetToPosition, UnmappableSourceMap } from './sourcemap';
 
 export class JsonExtractor implements StructuredExtractor {
   public format: 'json' = 'json';
@@ -101,9 +101,11 @@ export class JsonExtractor implements StructuredExtractor {
     node: jsonc.Node,
     documentText: string,
     hostLines: string[]
-  ): LineOffsetSourceMap {
+  ): LineOffsetSourceMap | UnmappableSourceMap {
     const lineMap: LineMapping[] = [];
     const textVal = String(node.value);
+    const rawContent = documentText.slice(node.offset + 1, node.offset + node.length - 1);
+    if (rawContent !== textVal) return new UnmappableSourceMap();
     const snippetLines = textVal.split(/\r?\n/);
 
     // Node offset is pointing to the opening quote `"`

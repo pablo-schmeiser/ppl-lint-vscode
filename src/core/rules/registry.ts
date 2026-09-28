@@ -6,6 +6,7 @@ import { PPL004_InvalidArguments } from './ppl004_invalid_arguments';
 import { PPL005_UnknownFunction } from './ppl005_unknown_function';
 import { PPL006_LateFilterWarning } from './ppl006_late_filter';
 import { PPL007_AssignmentInCondition } from './ppl007_assignment_in_condition';
+import { PPL008_UnverifiedStage } from './ppl008_unverified_stage';
 
 export class RuleRegistry {
   private rules: Map<string, LintRule> = new Map();
@@ -18,6 +19,7 @@ export class RuleRegistry {
     this.register(PPL005_UnknownFunction);
     this.register(PPL006_LateFilterWarning);
     this.register(PPL007_AssignmentInCondition);
+    this.register(PPL008_UnverifiedStage);
   }
 
   public register(rule: LintRule): void {

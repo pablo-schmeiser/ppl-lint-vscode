@@ -173,6 +173,13 @@ describe('PPL Parser', () => {
 
       expect(ast.source.type).toBe('ErrorNode');
       expect(ast.syntaxErrors.some((e) => e.message.includes('Missing source'))).toBe(true);
+      expect(ast.syntaxErrors).toHaveLength(1);
+      expect(ast.stages[0].type).toBe('WhereStage');
+    });
+
+    it('keeps following stages after a missing source', () => {
+      const ast = parsePpl('where status = 200 | stats count()');
+      expect(ast.stages.map((stage) => stage.type)).toEqual(['WhereStage', 'StatsStage']);
     });
 
     it('handles trailing pipe gracefully without crashing', () => {

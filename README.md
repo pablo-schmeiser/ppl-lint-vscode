@@ -22,16 +22,18 @@ In production environments, analytical queries rarely live only in isolated `.pp
 - **TOML**: Telemetry agent configurations (Vector, Telegraf, Fluentbit) and ingestion transforms.
 - **JSON**: Saved dashboard queries, notebook cells, and API payload definitions.
 
-This extension features a **bidirectional CST Source-Mapper** that translates PPL syntax errors and rule diagnostics directly to the exact line and column inside your parent configuration file—accurately accounting for block scalars (`|`, `|-`, `|+`), folded scalars (`>`), and multi-level indentation.
+The extension maps diagnostics in source-identical embedded strings to their host-file positions. It suppresses diagnostics when it cannot prove an exact mapping, including decoded escapes and folded YAML scalars; it never applies a quick fix at an approximate position.
+
+TOML extraction currently handles section headers, dotted bare keys, and quoted string values. Inline tables and quoted keys are not extracted yet. Escaped TOML strings are decoded for validation, but diagnostics for them are suppressed until exact host positions are available.
 
 ---
 
 ## Key Features
 
 - ⚡ **First-Class Standalone Linting**: Instant, debounced diagnostics on typing for `.ppl`, `.pplquery`, and `.query` files.
-- 🗺️ **Zero-Drift Embedded Source-Mapping**: Pinpoint accuracy for queries embedded in YAML, TOML, and JSON files without line/column offset drift.
+- 🗺️ **Exact-Only Embedded Locations**: Map diagnostics in supported YAML, TOML, and JSON string forms; skip locations that cannot be mapped exactly.
 - 🛡️ **Resilient Parser with Error Recovery**: Parsing recovers across `|` pipes so syntax errors in one stage never cascade down the pipeline.
-- 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command typos (powered by Levenshtein distance), missing source commands, and assignment operators in conditions (`Ctrl+.` or `Cmd+.`).
+- 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command and function typos and assignment operators in conditions (`Ctrl+.` or `Cmd+.`). A missing source requires you to supply an index name.
 - 📖 **Command Documentation Hovers**: Hover over any PPL command (`where`, `stats`, `eval`, `dedup`, `sort`, `rename`, `grok`, etc.) to view syntax templates, descriptions, and official OpenSearch documentation links.
 - 🎨 **TextMate Syntax Highlighting**: Rich colorization for commands, functions, operators, comments, and identifiers.
 
@@ -42,12 +44,19 @@ This extension features a **bidirectional CST Source-Mapper** that translates PP
 | Rule ID | Rule Name | Default Severity | Description & Automated Fix |
 | :--- | :--- | :---: | :--- |
 | **`PPL001`** | `SyntaxError` | `error` | Catches syntax errors (unclosed quotes/parentheses, trailing pipes). |
-| **`PPL002`** | `MissingSource` | `error` | Pipeline must begin with `source=<index>` or `search [source=]<index>`. Offers quick-fix: `Prepend 'source='`. |
+| **`PPL002`** | `MissingSource` | `error` | Pipeline must begin with `source=<index>` or `search [source=]<index>`. Supply the index manually. |
 | **`PPL003`** | `UnknownCommand` | `error` | Unknown command name. Suggests closest match (e.g. `stat` -> `stats`). |
 | **`PPL004`** | `InvalidArguments` | `error` | Missing required arguments (e.g. `stats` without aggregation functions). |
 | **`PPL005`** | `UnknownFunction` | `warning` | Flags unknown functions in expressions and aggregations with similarity hints. |
 | **`PPL006`** | `LateFilterWarning` | `warning` | Warns when `where` is placed after heavy operations (`sort`, `stats`, `dedup`) which causes performance degradation. |
 | **`PPL007`** | `AssignmentInCondition` | `warning` | Flags assignment operator `=` in boolean expressions. Offers quick-fix: `Replace '=' with '=='`. |
+| **`PPL008`** | `UnverifiedStage` | `error` | A recognized command has arguments not yet represented in the syntax tree; this does not mean OpenSearch rejects the query. |
+| **`PPL009`** | `UnverifiedVersion` | `warning` | Selected version is newer than the 3.5 baseline. |
+| **`PPL010`** | `UnsupportedVersion` | `error` | Selected version is invalid or older than 3.5. |
+
+Structured validation currently covers `source`/`search`, `where`, `fields`, `stats`, `eval`, `sort`, `rename`, `head`, and the count-plus-fields form of `dedup`. Other recognized stages are reported as unverified by PPL008. Disable PPL008 for a workspace with `"pplLinter.rules": { "PPL008": "off" }` if a known valid query uses one of these stages. Custom commands remain unverified even when listed in `customCommands`.
+
+Target OpenSearch 3.5 with `pplLinter.openSearchVersion` (default `"3.5"`). Later versions use the same baseline checks and emit PPL009 until their behavior is verified. Server-specific compatibility checks belong in `src/core/compatibility.ts` with a reproduced query, affected version range, and reference. No server-bug exceptions have yet been verified in this repository.
 
 ---
 
@@ -59,6 +68,7 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
 {
   // Enable or disable PPL linting globally
   "pplLinter.enabled": true,
+  "pplLinter.openSearchVersion": "3.5",
 
   // Standalone file mappings
   "pplLinter.standalone": {
@@ -126,7 +136,10 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
     "PPL004": "error",
     "PPL005": "warning",
     "PPL006": "warning",
-    "PPL007": "warning"
+    "PPL007": "warning",
+    "PPL008": "error",
+    "PPL009": "warning",
+    "PPL010": "error"
   },
 
   // Debounce delay in milliseconds for typing

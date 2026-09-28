@@ -1,7 +1,7 @@
 import { minimatch } from 'minimatch';
 import * as toml from 'smol-toml';
 import { ExtractedQuery, StructuredExtractor } from '../types';
-import { LineMapping, LineOffsetSourceMap } from './sourcemap';
+import { LineMapping, LineOffsetSourceMap, UnmappableSourceMap } from './sourcemap';
 
 export class TomlExtractor implements StructuredExtractor {
   public format: 'toml' = 'toml';
@@ -16,13 +16,23 @@ export class TomlExtractor implements StructuredExtractor {
       return results;
     }
 
+    let parsed: Record<string, unknown>;
     try {
-      toml.parse(documentText);
+      parsed = toml.parse(documentText);
     } catch {
       return results;
     }
 
     const hostLines = documentText.split(/\r?\n/);
+
+    const decodedValue = (path: string): string | undefined => {
+      let value: unknown = parsed;
+      for (const part of path.split('.')) {
+        if (typeof value !== 'object' || value === null) return undefined;
+        value = (value as Record<string, unknown>)[part];
+      }
+      return typeof value === 'string' ? value : undefined;
+    };
 
     const matchesPattern = (path: string): boolean => {
       if (keyPatterns.length === 0) return false;
@@ -74,14 +84,17 @@ export class TomlExtractor implements StructuredExtractor {
           if (afterQuote.endsWith(quoteDelim) && afterQuote.length >= 3) {
             // Single line multi-quote string
             const content = afterQuote.substring(0, afterQuote.length - 3);
-            if (matchesPattern(fullKeyPath) || (heuristic && isPplHeuristic(content))) {
+            const decoded = decodedValue(fullKeyPath);
+            if (decoded !== undefined && (matchesPattern(fullKeyPath) || (heuristic && isPplHeuristic(decoded)))) {
               const quoteCol = hostLines[lineIdx].indexOf(quoteDelim) + 3;
               lineMappings.push({ hostLine: lineIdx, hostColOffset: quoteCol });
               results.push({
-                rawText: content,
+                rawText: decoded,
                 keyPath: fullKeyPath,
                 hostFormat: 'toml',
-                sourceMap: new LineOffsetSourceMap(lineMappings),
+                sourceMap: decoded !== content
+                  ? new UnmappableSourceMap()
+                  : new LineOffsetSourceMap(lineMappings),
               });
             }
             lineIdx++;
@@ -100,33 +113,29 @@ export class TomlExtractor implements StructuredExtractor {
             const endIdx = curLine.indexOf(quoteDelim);
             if (endIdx >= 0) {
               const contentBeforeEnd = curLine.substring(0, endIdx);
-              if (contentBeforeEnd.length > 0 || rawLines.length === 0) {
-                rawLines.push(contentBeforeEnd);
-                const indent = curLine.search(/\S/);
-                lineMappings.push({
-                  hostLine: currentLineIdx,
-                  hostColOffset: Math.max(indent, 0),
-                });
-              }
+              rawLines.push(contentBeforeEnd);
+              lineMappings.push({ hostLine: currentLineIdx, hostColOffset: 0 });
               lineIdx = currentLineIdx;
               break;
             } else {
               rawLines.push(curLine);
-              const indent = curLine.search(/\S/);
               lineMappings.push({
                 hostLine: currentLineIdx,
-                hostColOffset: Math.max(indent, 0),
+                hostColOffset: 0,
               });
             }
           }
 
           const rawText = rawLines.join('\n');
-          if (matchesPattern(fullKeyPath) || (heuristic && isPplHeuristic(rawText))) {
+          const decoded = decodedValue(fullKeyPath);
+          if (decoded !== undefined && (matchesPattern(fullKeyPath) || (heuristic && isPplHeuristic(decoded)))) {
             results.push({
-              rawText,
+              rawText: decoded,
               keyPath: fullKeyPath,
               hostFormat: 'toml',
-              sourceMap: new LineOffsetSourceMap(lineMappings),
+              sourceMap: decoded !== rawText
+                ? new UnmappableSourceMap()
+                : new LineOffsetSourceMap(lineMappings),
             });
           }
           lineIdx++;
@@ -139,7 +148,8 @@ export class TomlExtractor implements StructuredExtractor {
           (valPart.startsWith("'") && valPart.endsWith("'"))
         ) {
           const content = valPart.substring(1, valPart.length - 1);
-          if (matchesPattern(fullKeyPath) || (heuristic && isPplHeuristic(content))) {
+          const decoded = decodedValue(fullKeyPath);
+          if (decoded !== undefined && (matchesPattern(fullKeyPath) || (heuristic && isPplHeuristic(decoded)))) {
             const quoteChar = valPart[0];
             const col = hostLines[lineIdx].indexOf(quoteChar, hostLines[lineIdx].indexOf('=')) + 1;
             const lineMappings: LineMapping[] = [
@@ -147,10 +157,12 @@ export class TomlExtractor implements StructuredExtractor {
             ];
 
             results.push({
-              rawText: content,
+              rawText: decoded,
               keyPath: fullKeyPath,
               hostFormat: 'toml',
-              sourceMap: new LineOffsetSourceMap(lineMappings),
+              sourceMap: decoded !== content
+                ? new UnmappableSourceMap()
+                : new LineOffsetSourceMap(lineMappings),
             });
           }
         }

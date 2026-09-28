@@ -1,5 +1,8 @@
 import {
+  DedupStageNode,
+  EvalStageNode,
   FieldsStageNode,
+  HeadStageNode,
   LintRule,
   PipelineNode,
   RenameStageNode,
@@ -15,6 +18,20 @@ export const PPL004_InvalidArguments: LintRule = {
   defaultSeverity: 'error',
   check(ast: PipelineNode, context: RuleContext): void {
     for (const stage of ast.stages) {
+      if (stage.type === 'DedupStage') {
+        const dedup = stage as DedupStageNode;
+        if (dedup.fields.length === 0 || (dedup.count !== undefined && (!Number.isInteger(dedup.count) || dedup.count < 1))) {
+          context.report({ code: 'PPL004', message: "'dedup' requires fields and an optional positive integer count.", severity: 'error', span: stage.span });
+        }
+      }
+      if (stage.type === 'EvalStage' && (stage as EvalStageNode).assignments.length === 0) {
+        context.report({ code: 'PPL004', message: "'eval' requires at least one assignment.", severity: 'error', span: stage.span });
+      }
+
+      if (stage.type === 'HeadStage' && (!Number.isInteger((stage as HeadStageNode).count) || (stage as HeadStageNode).count! < 1)) {
+        context.report({ code: 'PPL004', message: "'head' requires a positive integer count.", severity: 'error', span: stage.span });
+      }
+
       if (stage.type === 'StatsStage') {
         const stats = stage as StatsStageNode;
         if (stats.aggregations.length === 0) {

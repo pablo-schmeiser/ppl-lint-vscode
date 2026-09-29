@@ -1,8 +1,9 @@
 import { fieldsAt, fieldsBeforeStageAt } from './fieldScope';
 import { AGGREGATION_FUNCTIONS, DEFAULT_KNOWN_FUNCTIONS } from './catalog/functions';
 import { COMMAND_DOCS, DEFAULT_KNOWN_COMMANDS } from './catalog/commands';
+import { functionDocumentation, renderFunctionDocumentation } from './catalog/functionDocumentation';
 import { argumentConstraint, FunctionSignature, FUNCTION_SIGNATURES, getFunctionSignature, TypeConstraint } from './catalog/functionSignatures';
-import { IndexTemplate, resolveSource } from './indexTemplates';
+import { IndexTemplate, isSourceIncluded, resolveSource } from './indexTemplates';
 import { parsePpl } from './parser/parser';
 import { tokenize } from './lexer/tokenizer';
 import { PPL_TYPES, PplType } from './pplTypes';
@@ -12,6 +13,7 @@ export interface Candidate {
   label: string;
   detail: string;
   kind: 'field' | 'function' | 'source' | 'type' | 'constant' | 'command' | 'keyword' | 'operator';
+  documentation?: string;
   insertText?: string;
   retriggerAfterAccept?: boolean;
 }
@@ -221,12 +223,13 @@ function fieldCandidates(
   offset: number,
   prefix: string,
   templates: readonly IndexTemplate[],
-  constraint?: TypeConstraint
+  constraint?: TypeConstraint,
+  includedIndexes: readonly string[] = []
 ): Candidate[] {
   if (templates.length === 0) return [];
   const source = sourceName(query);
   if (!source) return [];
-  const sourceFields = resolveSource(templates, source);
+  const sourceFields = resolveSource(templates, source, includedIndexes);
   const projectionContext = ['fields', 'table'].includes(cursorContext(query, offset)?.command || '');
   const fields = projectionContext
     ? fieldsBeforeStageAt(query, sourceFields, offset, ['fields', 'table'])
@@ -262,22 +265,32 @@ function functionCandidates(prefix: string, command: string, constraint?: TypeCo
   const names = [...new Set(DEFAULT_KNOWN_FUNCTIONS)];
   return names.flatMap((name) => {
     if (!name.toLowerCase().startsWith(prefix.toLowerCase())) return [];
-    if (aggregateOnly && !AGGREGATION_FUNCTIONS.includes(name as (typeof AGGREGATION_FUNCTIONS)[number]) && name !== 'span') return [];
+    if (aggregateOnly && !AGGREGATION_FUNCTIONS.includes(name as (typeof AGGREGATION_FUNCTIONS)[number])) return [];
     const signature = getFunctionSignature(name, command || undefined);
     if (FUNCTION_SIGNATURES.has(name.toLowerCase()) && !signature) return [];
     if (constraint && (!signature || !functionReturnsConstraint(signature, constraint))) return [];
+    const documentation = functionDocumentation(name);
     return [{
       label: name,
       kind: 'function' as const,
-      detail: signatureDetail(signature),
+      detail: documentation?.syntax[0] ?? signatureDetail(signature),
+      documentation: documentation ? renderFunctionDocumentation(documentation) : undefined,
       insertText: `${name}(`,
       retriggerAfterAccept: true,
     }];
   });
 }
 
-function cursorSourceCandidates(prefix: string, templates: readonly IndexTemplate[]): Candidate[] {
-  return [...new Set(templates.flatMap((template) => [...template.aliases, ...template.patterns]))]
+function cursorSourceCandidates(
+  prefix: string,
+  templates: readonly IndexTemplate[],
+  includedIndexes: readonly string[]
+): Candidate[] {
+  return [...new Set([
+    ...templates.flatMap((template) => [...template.aliases, ...template.patterns]),
+    ...includedIndexes,
+  ])]
+    .filter((name) => isSourceIncluded(name, includedIndexes))
     .filter((name) => name.toLowerCase().startsWith(prefix.toLowerCase()))
     .map((label) => ({ label, kind: 'source' as const, detail: 'OpenSearch source', insertText: label }));
 }
@@ -309,10 +322,15 @@ function functionArgumentConstraint(frame: CallFrame | undefined, command: strin
   return signature && argumentConstraint(signature, frame.argumentIndex);
 }
 
-export function completionCandidates(query: string, offset: number, templates: readonly IndexTemplate[]): Candidate[] {
+export function completionCandidates(
+  query: string,
+  offset: number,
+  templates: readonly IndexTemplate[],
+  includedIndexes: readonly string[] = []
+): Candidate[] {
   const context = cursorContext(query, offset);
   if (!context) return [];
-  if (context.sourceCompletion) return cursorSourceCandidates(context.prefix, templates);
+  if (context.sourceCompletion) return cursorSourceCandidates(context.prefix, templates, includedIndexes);
   if (context.commandCompletion) return commandCandidates(context.prefix);
   if (context.castType) {
     return [...PPL_TYPES]
@@ -321,7 +339,7 @@ export function completionCandidates(query: string, offset: number, templates: r
   }
 
   if (['fields', 'table'].includes(context.command) && context.fieldOnly) {
-    return fieldCandidates(query, offset, context.prefix, templates);
+    return fieldCandidates(query, offset, context.prefix, templates, undefined, includedIndexes);
   }
 
   const constraint = functionArgumentConstraint(context.call, context.command);
@@ -332,7 +350,7 @@ export function completionCandidates(query: string, offset: number, templates: r
   if (context.whereContinuation) return whereContinuationCandidates(context.prefix);
 
   const fields = context.expression || context.fieldOnly
-    ? fieldCandidates(query, offset, context.prefix, templates, constraint)
+    ? fieldCandidates(query, offset, context.prefix, templates, constraint, includedIndexes)
     : [];
   const functions = context.expression
     ? functionCandidates(context.prefix, context.command, constraint)

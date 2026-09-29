@@ -7,6 +7,15 @@ export function getPplConfig(): PplLinterConfig {
   const enabled = config.get<boolean>('enabled', true);
   const openSearchVersion = config.get<string>('openSearchVersion', '3.5');
   const indexTemplateGlob = config.get<string>('indexTemplateGlob', '');
+  const openSearchTemplateNames = config.get<string[]>('openSearchTemplateNames', [])
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const openSearchMappingIndexes = config.get<string[]>('openSearchMappingIndexes', [])
+    .map((index) => index.trim())
+    .filter(Boolean);
+  const includedIndexes = config.get<string[]>('includedIndexes', [])
+    .map((index) => index.trim())
+    .filter(Boolean);
 
   const standalone = config.get<StandaloneConfig>('standalone', {
     fileExtensions: ['.ppl', '.pplquery', '.query'],
@@ -55,7 +64,6 @@ export function getPplConfig(): PplLinterConfig {
     PPL004: 'error',
     PPL005: 'warning',
     PPL006: 'warning',
-    PPL007: 'warning',
     PPL008: 'error',
     PPL009: 'warning',
     PPL010: 'error',
@@ -79,6 +87,9 @@ export function getPplConfig(): PplLinterConfig {
     enabled,
     openSearchVersion,
     indexTemplateGlob,
+    openSearchTemplateNames,
+    openSearchMappingIndexes,
+    includedIndexes,
     standalone,
     embedded,
     customCommands,

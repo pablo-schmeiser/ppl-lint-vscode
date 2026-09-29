@@ -33,7 +33,7 @@ TOML extraction currently handles section headers, dotted bare keys, and quoted 
 - ⚡ **First-Class Standalone Linting**: Instant, debounced diagnostics on typing for `.ppl`, `.pplquery`, and `.query` files.
 - 🗺️ **Exact-Only Embedded Locations**: Map diagnostics in supported YAML, TOML, and JSON string forms; skip locations that cannot be mapped exactly.
 - 🛡️ **Resilient Parser with Error Recovery**: Parsing recovers across `|` pipes so syntax errors in one stage never cascade down the pipeline.
-- 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command and function typos and assignment operators in conditions (`Ctrl+.` or `Cmd+.`). A missing source requires you to supply an index name.
+- 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command and function typos (`Ctrl+.` or `Cmd+.`). A missing source requires you to supply an index name.
 - 📖 **Command Documentation Hovers**: Hover over any PPL command (`where`, `stats`, `eval`, `dedup`, `sort`, `rename`, `grok`, etc.) to view syntax templates, descriptions, and official OpenSearch documentation links.
 - **Context-Aware Suggestions**: Suggest pipeline commands after `|`, aggregation functions after `stats`, and PPL functions while writing expressions. Function-argument fields are filtered by type, CAST targets are suggested, and string fields accepted through numeric coercion are marked as potentially unsafe.
 - **Mapped Field Hovers**: Hover over a field such as `event.type` to see its normalized PPL type and the index template that supplied it. Computed fields show their inferred PPL type and pipeline origin.
@@ -53,7 +53,6 @@ The PPL TextMate grammar colors standalone `.ppl`, `.pplquery`, and `.query` fil
 | **`PPL004`** | `InvalidArguments` | `error` | Missing required arguments (e.g. `stats` without aggregation functions). |
 | **`PPL005`** | `UnknownFunction` | `warning` | Flags unknown functions in expressions and aggregations with similarity hints. |
 | **`PPL006`** | `LateFilterWarning` | `warning` | Warns when `where` is placed after heavy operations (`sort`, `stats`, `dedup`) which causes performance degradation. |
-| **`PPL007`** | `AssignmentInCondition` | `warning` | Flags assignment operator `=` in boolean expressions. Offers quick-fix: `Replace '=' with '=='`. |
 | **`PPL008`** | `UnverifiedStage` | `error` | A recognized command has arguments not yet represented in the syntax tree; this does not mean OpenSearch rejects the query. |
 | **`PPL009`** | `UnverifiedVersion` | `warning` | Selected version is newer than the 3.5 baseline. |
 | **`PPL010`** | `UnsupportedVersion` | `error` | Selected version is invalid or older than 3.5. |
@@ -82,8 +81,14 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
   // Enable or disable PPL linting globally
   "pplLinter.enabled": true,
   "pplLinter.openSearchVersion": "3.5",
-  // OpenSearch index-template YAML files used as the field/type schema
+  // Optional local OpenSearch index-template YAML files, combined with fetched templates
   "pplLinter.indexTemplateGlob": "/path/to/templates/index-template-*.yaml",
+  // Optional template names or name patterns; an empty list fetches all templates
+  "pplLinter.openSearchTemplateNames": ["mam_*", "security-*"],
+  // Optional live index mappings fetched directly from OpenSearch
+  "pplLinter.openSearchMappingIndexes": ["mam_*", "lookup_*"],
+  // Optional source indexes, aliases, or glob patterns to include
+  "pplLinter.includedIndexes": ["auditd-*", "auditd-reader"],
 
   // Standalone file mappings
   "pplLinter.standalone": {
@@ -151,7 +156,6 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
     "PPL004": "error",
     "PPL005": "warning",
     "PPL006": "warning",
-    "PPL007": "warning",
     "PPL008": "error",
     "PPL009": "warning",
     "PPL010": "error",
@@ -168,9 +172,13 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
 }
 ```
 
-`pplLinter.indexTemplateGlob` is empty by default. Without it, the extension keeps syntax-only linting. Set a workspace-relative glob or an absolute glob for templates in another repository. When enabled, the extension watches those files and uses their index patterns, aliases, declared properties, nested properties, and multi-fields for field/type checks, hover, and completion. A source that matches no configured template is an error. A field absent from all templates, or only allowed by a `dynamic: true` mapping, is an error when used. Fields from templates sharing an alias are combined; equivalent PPL types merge, while conflicting PPL types are reported at the field reference. The checker follows PPL implicit conversions and warns when string-to-number conversion may fail for runtime values.
+On first activation, the extension asks for an OpenSearch domain, username, and password, then fetches templates from `/_index_template`. `pplLinter.openSearchTemplateNames` selects template names or name patterns via `/_index_template/{template-name}`; an empty list fetches all templates. Each entry in `pplLinter.openSearchMappingIndexes` triggers a live request to `/{pattern}/_mapping`; for example, `mam_*` fetches mappings for matching indexes. The OpenSearch account needs permission to read the selected templates and mappings. It asks again every seven days. The password is used for requests and is never persisted. The extension caches the domain, username, last prompt time, selected templates, and mapping responses in VS Code extension state so restarts do not trigger extra prompts. Changing either selection list triggers a refresh. Run **PPL: Refresh OpenSearch Index Patterns** to refresh early. Remote connections require HTTPS; HTTP is allowed for localhost.
 
-Function signatures and casts infer types through `eval` and named `stats` outputs. Field scope follows `fields`, `table`, `rename`, `stats`, `eventstats`, and `streamstats`. After an unmodeled field-changing stage, hard missing-field checks pause to avoid false positives. Incomplete syntax suppresses dependent semantic errors. Lookup output fields have no schema in this release: using one reports PPL012. A separate lookup-schema source is planned for later.
+`pplLinter.indexTemplateGlob` is empty by default and remains optional. Set a workspace-relative glob or an absolute glob for local templates in another repository. The extension watches those files and combines them with the fetched templates for index-pattern and alias matching, field/type checks, hover, and completion. A source that matches no configured template is an error. A field absent from all templates, or only allowed by a `dynamic: true` mapping, is an error when used. Fields from templates sharing an alias are combined; equivalent PPL types merge, while conflicting PPL types are reported at the field reference. The checker follows PPL implicit conversions and warns when string-to-number conversion may fail for runtime values.
+
+Use `pplLinter.openSearchMappingIndexes` to choose which live index mappings the extension fetches. It accepts index names, aliases, and patterns using `*` and `?`; it is empty by default. Use `pplLinter.includedIndexes` separately to restrict source and lookup schema checks, mapped-field hovers, and suggestions to selected names or patterns. An empty `includedIndexes` list includes all sources and lookup indexes; it filters local use of cached schemas, not what the mapping API fetches.
+
+Function signatures and casts infer types through `eval` and named `stats` outputs. Field scope follows `fields`, `table`, `rename`, `stats`, `eventstats`, and `streamstats`. After an unmodeled field-changing stage, hard missing-field checks pause to avoid false positives. Incomplete syntax suppresses dependent semantic errors. Lookup keys and selected output fields are checked against the resolved lookup index schema. When no output fields are listed, all non-key fields from the lookup schema are added. `replace` is the default mode; `append` requires an existing output field.
 
 The OpenSearch type mapping follows the documented PPL types. `keyword`, `text`, and `wildcard` map to `string`; `integer` to `int`; `long` to `bigint`; `date` to `timestamp`; `object` to `struct`; and `nested` to `array`. Unsupported OpenSearch mapping types are treated as untyped rather than guessed.
 

@@ -11,7 +11,12 @@ export interface FieldHoverInfo {
   span: { start: number; end: number };
 }
 
-export function fieldInfoAt(query: string, offset: number, templates: readonly IndexTemplate[]): FieldHoverInfo | undefined {
+export function fieldInfoAt(
+  query: string,
+  offset: number,
+  templates: readonly IndexTemplate[],
+  includedIndexes: readonly string[] = []
+): FieldHoverInfo | undefined {
   if (!templates.length) return undefined;
   const tokens = tokenize(query);
   const index = tokens.findIndex((token) =>
@@ -22,7 +27,7 @@ export function fieldInfoAt(query: string, offset: number, templates: readonly I
   const source = parsePpl(query).source;
   const token = tokens[index];
   if (source.type !== 'SourceStage' || offset < source.span.end.offset) return undefined;
-  const field = typedFieldScopeAt(query, templates, offset)?.get(token.value);
+  const field = typedFieldScopeAt(query, templates, offset, includedIndexes)?.get(token.value);
   const types = field?.pplTypes?.length ? field.pplTypes : [];
   if (!field || types.length === 0) return undefined;
 

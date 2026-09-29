@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Treat `=` and `==` as valid equality operators in conditions; remove the PPL007 warning and quick-fix.
+
 ## [0.1.0] - 2026-09-11
 
 ### Added

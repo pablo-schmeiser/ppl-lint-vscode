@@ -21,14 +21,13 @@ describe('End-to-End Pipeline Integration', () => {
     expect(diagnostics).toHaveLength(0);
   });
 
-  it('lints invalid standalone PPL fixture and flags multiple errors (PPL001, PPL003, PPL007)', () => {
+  it('lints invalid standalone PPL fixture and flags multiple errors (PPL001, PPL003)', () => {
     const invalidCode = fs.readFileSync(path.join(fixturesDir, 'invalid_syntax.ppl'), 'utf-8');
     const diagnostics = linter.lint(invalidCode);
 
     expect(diagnostics.length).toBeGreaterThan(0);
     expect(diagnostics.some((d) => d.code === 'PPL001')).toBe(true); // unclosed paren / trailing pipe
     expect(diagnostics.some((d) => d.code === 'PPL003')).toBe(true); // unknown command 'stat' -> 'stats'
-    expect(diagnostics.some((d) => d.code === 'PPL007')).toBe(true); // assignment '=' in where condition
   });
 
   it('end-to-end linting on detection_rule.yaml with zero coordinate drift', () => {

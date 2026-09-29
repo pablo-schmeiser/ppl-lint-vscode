@@ -58,10 +58,23 @@ describe('completion candidates', () => {
     expect(candidates.some((candidate) => candidate.label === 'lower' && candidate.kind === 'function')).toBe(true);
   });
 
+  it('limits source and field suggestions to the configured index allowlist', () => {
+    const sourceCandidates = completionCandidates('source=aud', 10, templates, ['auditd-reader']);
+    expect(sourceCandidates.map((candidate) => candidate.label)).toEqual(['auditd-reader']);
+
+    const query = 'source=other-index | where ';
+    const fieldCandidates = completionCandidates(query, query.length, templates, ['auditd-*']);
+    expect(fieldCandidates.some((candidate) => candidate.kind === 'field')).toBe(false);
+    expect(fieldCandidates.some((candidate) => candidate.label === 'lower' && candidate.kind === 'function')).toBe(true);
+  });
+
   it('suggests functions without loading index templates', () => {
     const query = 'source=missing | eval label = lo';
     const candidates = completionCandidates(query, query.length, []);
-    expect(candidates.some((candidate) => candidate.label === 'lower' && candidate.kind === 'function')).toBe(true);
+    const lower = candidates.find((candidate) => candidate.label === 'lower' && candidate.kind === 'function');
+    expect(lower?.detail).toBe('lower(string)');
+    expect(lower?.documentation).toContain('Converts a string to lowercase.');
+    expect(lower?.documentation).toContain('OpenSearch PPL reference');
   });
 
   it('suggests pipeline commands after a pipe and aggregations after stats', () => {

@@ -81,6 +81,16 @@
         "command": "pplLinter.toggleEnabled",
         "title": "PPL: Toggle Linting Enabled",
         "category": "PPL"
+      },
+      {
+        "command": "pplLinter.refreshOpenSearchIndexTemplates",
+        "title": "PPL: Refresh OpenSearch Index Patterns",
+        "category": "PPL"
+      },
+      {
+        "command": "pplLinter.showOpenSearchLogs",
+        "title": "PPL: Show OpenSearch Logs",
+        "category": "PPL"
       }
     ],
     "configuration": {
@@ -99,7 +109,31 @@
         "pplLinter.indexTemplateGlob": {
           "type": "string",
           "default": "",
-          "description": "Glob for OpenSearch index-template YAML files, relative to the workspace or absolute for external folders. Empty keeps syntax-only linting and disables schema diagnostics and suggestions."
+          "description": "Glob for local OpenSearch index-template YAML files, relative to the workspace or absolute for external folders. Remote templates are fetched from OpenSearch separately."
+        },
+        "pplLinter.openSearchTemplateNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional list of OpenSearch index-template names or wildcard patterns to fetch. Empty fetches all templates."
+        },
+        "pplLinter.openSearchMappingIndexes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Index names, aliases, or * and ? patterns whose live mappings should be fetched from the configured OpenSearch domain, for example mam_*."
+        },
+        "pplLinter.includedIndexes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional allowlist of PPL source index names, aliases, or patterns using * and ?. Empty includes all sources."
         },
         "pplLinter.standalone": {
           "type": "object",
@@ -271,7 +305,6 @@
             "PPL004": "error",
             "PPL005": "warning",
             "PPL006": "warning",
-            "PPL007": "warning",
             "PPL008": "error",
             "PPL009": "warning",
             "PPL010": "error",
@@ -347,17 +380,6 @@
               ],
               "default": "warning",
               "description": "PPL006: Late Filter Performance Warning"
-            },
-            "PPL007": {
-              "type": "string",
-              "enum": [
-                "error",
-                "warning",
-                "info",
-                "off"
-              ],
-              "default": "warning",
-              "description": "PPL007: Assignment In Boolean Condition"
             },
             "PPL008": {
               "type": "string",

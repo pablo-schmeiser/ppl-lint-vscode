@@ -58,7 +58,13 @@ export class PplLinter {
     }
 
     this.checkPipeline(ast, context);
-    for (const diagnostic of checkSchemaTypes(queryText, ast, templates, schemaEnabled)) context.report(diagnostic);
+    for (const diagnostic of checkSchemaTypes(
+      queryText,
+      ast,
+      templates,
+      schemaEnabled,
+      this.options.includedIndexes
+    )) context.report(diagnostic);
 
     applyCompatibilityExceptions(ast, context, version);
 

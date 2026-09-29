@@ -8,6 +8,7 @@ export class IndexTemplateCatalog implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly templates = new Map<string, IndexTemplate[]>();
   private externalTemplates: IndexTemplate[] = [];
+  private remoteTemplates: IndexTemplate[] = [];
   private generation = 0;
   private ready: Promise<void> = Promise.resolve();
 
@@ -29,10 +30,15 @@ export class IndexTemplateCatalog implements vscode.Disposable {
 
   public async forDocument(document: vscode.TextDocument): Promise<IndexTemplate[]> {
     await this.ready;
-    if (path.isAbsolute(this.glob)) return this.externalTemplates;
-    const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-    if (!folder) return [];
-    return this.templates.get(folder.uri.toString()) || [];
+    const localTemplates = path.isAbsolute(this.glob)
+      ? this.externalTemplates
+      : this.templates.get(vscode.workspace.getWorkspaceFolder(document.uri)?.uri.toString() || '') || [];
+    return [...localTemplates, ...this.remoteTemplates];
+  }
+
+  public setRemoteTemplates(templates: IndexTemplate[]): void {
+    this.remoteTemplates = templates;
+    this.onChanged?.();
   }
 
   private refresh(): void {

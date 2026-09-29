@@ -38,27 +38,6 @@ export class PplCodeActionProvider implements vscode.CodeActionProvider {
         }
       }
 
-      // PPL007: Assignment in condition
-      if (code === 'PPL007') {
-        const textAtRange = document.getText(diagnostic.range);
-        const eqIdx = textAtRange.indexOf('=');
-        if (eqIdx >= 0) {
-          const eqOffset = document.offsetAt(diagnostic.range.start) + eqIdx;
-          const eqPos = document.positionAt(eqOffset);
-          const eqEndPos = document.positionAt(eqOffset + 1);
-
-          const action = new vscode.CodeAction(
-            "Replace '=' with '=='",
-            vscode.CodeActionKind.QuickFix
-          );
-          action.diagnostics = [diagnostic];
-          action.isPreferred = true;
-          action.edit = new vscode.WorkspaceEdit();
-          action.edit.replace(document.uri, new vscode.Range(eqPos, eqEndPos), '==');
-          actions.push(action);
-        }
-      }
-
       // PPL005: Unknown function
       if (code === 'PPL005' && data?.suggestion) {
         const action = new vscode.CodeAction(

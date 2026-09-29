@@ -360,8 +360,12 @@ export class PplParser {
     // Parse aggregation function list until 'by' or next pipe/EOF
     while (!this.isAtEnd() && !this.check(TokenType.PIPE) && !this.check(TokenType.BY)) {
       const expr = this.parsePrimary();
-      if (expr.type === 'FunctionCall') {
-        const aggregation = expr as FunctionCallNode;
+      const aggregation = expr.type === 'FunctionCall'
+        ? expr as FunctionCallNode
+        : expr.type === 'Identifier' && (expr as IdentifierNode).name.toLowerCase() === 'count'
+          ? createFunctionCallNode((expr as IdentifierNode).name, [], expr.span)
+          : undefined;
+      if (aggregation) {
         if (this.match(TokenType.AS)) {
           const alias = this.parseFieldIdentifier('Expected aggregation alias after as');
           aggregation.alias = alias?.name;
@@ -640,7 +644,7 @@ export class PplParser {
     while (!this.isAtEnd() && !this.check(TokenType.PIPE)) {
       const mode = this.peek().value.toLowerCase();
       if (mode === 'replace' || mode === 'append' || mode === 'output') {
-        outputMode = mode === 'replace' ? 'replace' : 'append';
+        outputMode = mode === 'append' ? 'append' : 'replace';
         this.advance();
         break;
       }
@@ -896,7 +900,7 @@ export class PplParser {
     while (
       this.match(TokenType.EQUALS) ||
       this.match(TokenType.NOT_EQUALS) ||
-      this.match(TokenType.ASSIGN) || // captured for PPL007 check
+      this.match(TokenType.ASSIGN) ||
       this.match(TokenType.LIKE) ||
       this.match(TokenType.IN)
     ) {

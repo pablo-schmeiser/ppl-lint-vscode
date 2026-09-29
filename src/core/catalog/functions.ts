@@ -27,6 +27,7 @@ export const AGGREGATION_FUNCTIONS: readonly string[] = [
   'per_minute',
   'per_hour',
   'per_day',
+  'span',
   'earliest',
   'latest',
 ] as const;
@@ -60,6 +61,7 @@ export const STRING_FUNCTIONS: readonly string[] = [
   'substr',
   'substring',
   'replace',
+  'right',
   'regexp_extract',
   'regexp_match',
   'match_phrase',

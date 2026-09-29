@@ -310,6 +310,7 @@ export interface LintRule {
 
 export interface PplLinterOptions {
   openSearchVersion?: string;
+  includedIndexes?: string[];
   rules?: Record<string, DiagnosticSeverity>;
   customCommands?: string[];
   customFunctions?: string[];
@@ -370,6 +371,9 @@ export interface PplLinterConfig {
   enabled: boolean;
   openSearchVersion: string;
   indexTemplateGlob: string;
+  openSearchTemplateNames: string[];
+  openSearchMappingIndexes: string[];
+  includedIndexes: string[];
   standalone: StandaloneConfig;
   embedded: EmbeddedRuleConfig[];
   customCommands: string[];

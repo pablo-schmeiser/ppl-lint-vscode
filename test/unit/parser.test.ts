@@ -114,6 +114,16 @@ describe('PPL Parser', () => {
     expect(statsStage.groupBy[0].name).toBe('state');
   });
 
+  it('parses stats count without a field argument', () => {
+    const ast = parsePpl('source=logs | stats count as connection_count by source_ip');
+
+    expect(ast.syntaxErrors).toHaveLength(0);
+    const statsStage = ast.stages[0] as any;
+    expect(statsStage.aggregations[0].functionName).toBe('count');
+    expect(statsStage.aggregations[0].alias).toBe('connection_count');
+    expect(statsStage.groupBy[0].name).toBe('source_ip');
+  });
+
   it('parses search source prefix and fields/sort stages', () => {
     const query = 'search source=logs | fields + host, status | sort - bytes';
     const ast = parsePpl(query);

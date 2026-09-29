@@ -12,13 +12,18 @@ export class PplCompletionProvider implements vscode.CompletionItemProvider {
   public async provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> {
     const config: PplLinterConfig = getPplConfig();
     if (!config.enabled) return [];
-    const templates = config.indexTemplateGlob
-      ? await this.catalog().forDocument(document)
-      : [];
+    const templates = await this.catalog().forDocument(document);
 
     if (isStandalone(document, config)) {
-      return this.items(document.getText(), document.offsetAt(position), templates, (span) =>
-        new vscode.Range(document.positionAt(span.start.offset), document.positionAt(span.end.offset))
+      return this.items(
+        document.getText(),
+        document.offsetAt(position),
+        templates,
+        (span) => new vscode.Range(
+          document.positionAt(span.start.offset),
+          document.positionAt(span.end.offset)
+        ),
+        config.includedIndexes
       );
     }
 
@@ -27,7 +32,7 @@ export class PplCompletionProvider implements vscode.CompletionItemProvider {
       if (!snippet) continue;
       const lines = query.rawText.split(/\r?\n/);
       const offset = lines.slice(0, snippet.line).reduce((total, line) => total + line.length + 1, 0) + snippet.col;
-      return this.items(query.rawText, offset, templates, (span) => this.hostRange(query, span));
+      return this.items(query.rawText, offset, templates, (span) => this.hostRange(query, span), config.includedIndexes);
     }
     return [];
   }
@@ -44,7 +49,8 @@ export class PplCompletionProvider implements vscode.CompletionItemProvider {
     query: string,
     offset: number,
     templates: Awaited<ReturnType<IndexTemplateCatalog['forDocument']>>,
-    rangeFor: (span: Span) => vscode.Range | undefined
+    rangeFor: (span: Span) => vscode.Range | undefined,
+    includedIndexes: readonly string[]
   ): vscode.CompletionItem[] {
     let start = offset;
     let end = offset;
@@ -53,7 +59,7 @@ export class PplCompletionProvider implements vscode.CompletionItemProvider {
     const toPosition = (at: number) => ({ ...offsetToPosition(query, at), offset: at });
     const range = rangeFor({ start: toPosition(start), end: toPosition(end) });
     if (!range) return [];
-    return completionCandidates(query, offset, templates).map((candidate) => {
+    return completionCandidates(query, offset, templates, includedIndexes).map((candidate) => {
       const kind = {
         field: vscode.CompletionItemKind.Field,
         function: vscode.CompletionItemKind.Function,
@@ -66,6 +72,7 @@ export class PplCompletionProvider implements vscode.CompletionItemProvider {
       }[candidate.kind];
       const item = new vscode.CompletionItem(candidate.label, kind);
       item.detail = candidate.detail;
+      if (candidate.documentation) item.documentation = new vscode.MarkdownString(candidate.documentation);
       item.range = range;
       item.insertText = candidate.insertText || candidate.label;
       if (candidate.retriggerAfterAccept) {

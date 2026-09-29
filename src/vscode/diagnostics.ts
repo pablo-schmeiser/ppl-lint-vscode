@@ -20,6 +20,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
     this.config = getPplConfig();
     this.linter = new PplLinter({
       openSearchVersion: this.config.openSearchVersion,
+      includedIndexes: this.config.includedIndexes,
       rules: this.config.rules,
       customCommands: this.config.customCommands,
       customFunctions: this.config.customFunctions,
@@ -31,6 +32,7 @@ export class PplDiagnosticManager implements vscode.Disposable {
     this.config = getPplConfig();
     this.linter = new PplLinter({
       openSearchVersion: this.config.openSearchVersion,
+      includedIndexes: this.config.includedIndexes,
       rules: this.config.rules,
       customCommands: this.config.customCommands,
       customFunctions: this.config.customFunctions,
@@ -58,10 +60,8 @@ export class PplDiagnosticManager implements vscode.Disposable {
     const embedded = standalone ? undefined : embeddedQueries(document, this.config);
     if (!standalone && !embedded?.matched) return;
 
-    const schemaEnabled = this.config.indexTemplateGlob.length > 0;
-    const templates = schemaEnabled
-      ? (await this.getIndexTemplateCatalog?.()?.forDocument(document)) || []
-      : [];
+    const templates = (await this.getIndexTemplateCatalog?.()?.forDocument(document)) || [];
+    const schemaEnabled = this.config.indexTemplateGlob.length > 0 || templates.length > 0;
     if (document.version !== documentVersion) return;
 
     if (standalone) {

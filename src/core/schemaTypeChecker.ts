@@ -27,7 +27,7 @@ import {
   getFunctionSignature,
   TypeConstraint,
 } from './catalog/functionSignatures';
-import { IndexTemplate, KnownField, resolveSource } from './indexTemplates';
+import { IndexTemplate, isSourceIncluded, KnownField, resolveSource } from './indexTemplates';
 import { parsePpl } from './parser/parser';
 import { normalizeOpenSearchTypes, normalizePplTypeName, PplType } from './pplTypes';
 
@@ -41,6 +41,8 @@ interface InferredExpression {
 
 const NUMERIC_TYPES = new Set<PplType>(['tinyint', 'smallint', 'int', 'bigint', 'float', 'double']);
 const TEMPORAL_TYPES = new Set<PplType>(['date', 'time', 'timestamp']);
+const SPAN_INTERVAL_PATTERN =
+  /^\d+(?:\.\d+)?(?:ms|s|m|h|d|w|M|q|y|millisecond|second|minute|hour|day|week|month|quarter|year)s?$/;
 
 function supportsCast(source: PplType, target: PplType): boolean {
   if (source === target || target === 'string') return true;
@@ -218,20 +220,23 @@ function checkArguments(
   return checkedArgs;
 }
 
+function inferCommonType(args: readonly InferredExpression[]): ExpressionType {
+  const types = args.map(({ type }) => type).filter((type) => type !== 'null' && type !== 'unknown');
+  if (types.length > 0 && types.every((type) => type === types[0])) return types[0];
+  if (types.length > 0 && types.every(isNumeric)) {
+    return types.slice(1).reduce<PplType>((previous, current) => widerNumeric(previous, current), types[0] as PplType);
+  }
+  return types.includes('string') ? 'string' : 'unknown';
+}
+
 function inferReturnType(signature: FunctionSignature, args: InferredExpression[], context: string): ExpressionType {
   if (signature.returnType === 'sameAsFirst') return args[0]?.type ?? 'unknown';
   if (signature.returnType === 'widerNumeric') {
     const types = args.map(({ type }) => type).filter(isNumeric);
     return types.reduce<PplType>((previous, current) => widerNumeric(previous, current), types[0] || 'int');
   }
-  if (signature.returnType === 'common') {
-    const types = args.map(({ type }) => type).filter((type) => type !== 'null' && type !== 'unknown');
-    if (types.length > 0 && types.every((type) => type === types[0])) return types[0];
-    if (types.length > 0 && types.every(isNumeric)) {
-      return types.slice(1).reduce<PplType>((previous, current) => widerNumeric(previous, current), types[0] as PplType);
-    }
-    return types.includes('string') ? 'string' : 'unknown';
-  }
+  if (signature.returnType === 'if') return inferCommonType(args.slice(1));
+  if (signature.returnType === 'common') return inferCommonType(args);
   if (signature.returnType === 'case') {
     const results = args.filter((_argument, index) => index % 2 === 1);
     if (args.length % 2 === 1) results.push(args[args.length - 1]);
@@ -243,6 +248,10 @@ function inferReturnType(signature: FunctionSignature, args: InferredExpression[
     return types.includes('string') ? 'string' : 'unknown';
   }
   if (signature.returnType === 'fromUnixTime') return args.length > 1 ? 'string' : 'timestamp';
+  if (signature.returnType === 'addDate') {
+    if (args[1]?.constantValue === 'interval') return 'timestamp';
+    return args[0]?.type === 'date' ? 'date' : 'timestamp';
+  }
   if (signature.returnType === 'earliestLatest') return context === 'where' || context === 'eval' ? 'boolean' : args[0]?.type ?? 'unknown';
   if (signature.returnType === 'unknown') return 'unknown';
   return signature.returnType;
@@ -287,6 +296,22 @@ function inferExpression(
     const call = expression as FunctionCallNode;
     const signature = getFunctionSignature(call.functionName, context);
     const args = call.arguments.map((argument, index) => {
+      if (
+        index === 1 &&
+        ['adddate', 'date_add', 'date_sub'].includes(call.functionName.toLowerCase()) &&
+        argument.type === 'Identifier' &&
+        (argument as IdentifierNode).name.toLowerCase() === 'interval'
+      ) {
+        return { type: 'string' as const, isConstant: true, constantValue: 'interval' };
+      }
+      if (
+        index === 1 &&
+        call.functionName.toLowerCase() === 'span' &&
+        argument.type === 'Identifier' &&
+        SPAN_INTERVAL_PATTERN.test((argument as IdentifierNode).name)
+      ) {
+        return { type: 'string' as const, isConstant: true, constantValue: (argument as IdentifierNode).name };
+      }
       if (signature?.constantArguments?.includes(index) && argument.type === 'Identifier') {
         return { type: 'string' as const, isConstant: true, constantValue: (argument as IdentifierNode).name };
       }
@@ -357,7 +382,7 @@ function inferExpression(
     const argument = inferExpression(unary.argument, fields, diagnostics, context);
     if (unary.operator.toLowerCase() === 'not' && argument.type !== 'boolean' && argument.type !== 'unknown') {
       mismatch(`Operator '${unary.operator}' requires a boolean operand, got '${argument.type}'.`, unary.argument.span, diagnostics);
-    } else if (unary.operator !== 'not' && !isNumeric(argument.type) && argument.type !== 'unknown') {
+    } else if (unary.operator.toLowerCase() !== 'not' && !isNumeric(argument.type) && argument.type !== 'unknown') {
       mismatch(`Unary '${unary.operator}' requires a numeric operand, got '${argument.type}'.`, unary.argument.span, diagnostics);
     }
     return { type: unary.operator.toLowerCase() === 'not' ? 'boolean' : argument.type, isConstant: false };
@@ -367,6 +392,14 @@ function inferExpression(
 
 function knownField(type: ExpressionType, templates: string[] = []): KnownField {
   return { types: [], pplTypes: type === 'unknown' || type === 'null' ? [] : [type], templates };
+}
+
+function mergeKnownFields(left: KnownField, right: KnownField): KnownField {
+  return {
+    types: [...new Set([...left.types, ...right.types])],
+    pplTypes: [...new Set([...mappedTypes(left), ...mappedTypes(right)])],
+    templates: [...new Set([...left.templates, ...right.templates])],
+  };
 }
 
 function projectFields(fields: Map<string, KnownField>, stage: FieldsStageNode): Map<string, KnownField> {
@@ -393,7 +426,13 @@ function namedCaptures(pattern: string): string[] {
   return [...new Set([...pattern.matchAll(/\(\?<([A-Za-z_][A-Za-z0-9_]*)>/g)].map((match) => match[1]))];
 }
 
-function applyStage(stage: PipelineNode['stages'][number], fields: Map<string, KnownField>, diagnostics: CoreDiagnostic[]): {
+function applyStage(
+  stage: PipelineNode['stages'][number],
+  fields: Map<string, KnownField>,
+  diagnostics: CoreDiagnostic[],
+  templates: readonly IndexTemplate[] = [],
+  includedIndexes: readonly string[] = []
+): {
   fields: Map<string, KnownField>;
   certain: boolean;
 } {
@@ -450,11 +489,98 @@ function applyStage(stage: PipelineNode['stages'][number], fields: Map<string, K
   }
   if (stage.type === 'LookupStage') {
     const lookup = stage as LookupStageNode;
-    for (const mapping of lookup.mappings) {
-      if (mapping.source) diagnostics.push(...fieldReferenceDiagnostics(mapping.source, fields).diagnostics);
+
+    if (!isSourceIncluded(lookup.index.name, includedIndexes)) {
+      diagnostics.push({
+        code: 'PPL011',
+        message: `Lookup index '${lookup.index.name}' is not included by pplLinter.includedIndexes.`,
+        severity: 'error',
+        span: lookup.index.span,
+      });
+      return { fields, certain: false };
     }
-    for (const output of lookup.outputs) fields.set(output.output?.name || output.input.name, knownField('unknown'));
-    return { fields, certain: true };
+
+    const lookupFields = resolveSource(templates, lookup.index.name, includedIndexes);
+    if (lookupFields.size === 0) {
+      diagnostics.push({
+        code: 'PPL011',
+        message: `No configured index template or alias matches lookup index '${lookup.index.name}'.`,
+        severity: 'error',
+        span: lookup.index.span,
+      });
+      return { fields, certain: false };
+    }
+
+    for (const mapping of lookup.mappings) {
+      diagnostics.push(...fieldReferenceDiagnostics(mapping.lookup, lookupFields).diagnostics);
+      diagnostics.push(...fieldReferenceDiagnostics(mapping.source ?? mapping.lookup, fields).diagnostics);
+    }
+
+    const lookupKeys = new Set(lookup.mappings.map((mapping) => mapping.lookup.name));
+    const outputs: Array<{
+      inputName: string;
+      outputName: string;
+      span: Span;
+      input?: IdentifierNode;
+      field?: KnownField;
+    }> = lookup.outputs.length > 0
+      ? lookup.outputs.map((output) => ({
+          inputName: output.input.name,
+          outputName: output.output?.name ?? output.input.name,
+          span: output.output?.span ?? output.input.span,
+          input: output.input,
+        }))
+      : [...lookupFields]
+          .filter(([name]) => !lookupKeys.has(name))
+          .map(([name, field]) => ({
+            inputName: name,
+            outputName: name,
+            span: lookup.index.span,
+            field,
+          }));
+
+    let certain = true;
+    for (const output of outputs) {
+      const lookupField = output.field ?? lookupFields.get(output.inputName);
+      if (!lookupField) {
+        diagnostics.push({
+          code: 'PPL012',
+          message: `Lookup output field '${output.inputName}' is not declared in lookup index '${lookup.index.name}'.`,
+          severity: 'error',
+          span: output.span,
+        });
+        certain = false;
+        continue;
+      }
+      if (output.input) {
+        const result = fieldReferenceDiagnostics(output.input, lookupFields);
+        diagnostics.push(...result.diagnostics);
+        if (result.diagnostics.some((diagnostic) => diagnostic.code === 'PPL012')) {
+          certain = false;
+          continue;
+        }
+      }
+
+      if ((lookup.outputMode ?? 'replace') === 'append') {
+        const existing = fields.get(output.outputName);
+        if (!existing) {
+          diagnostics.push({
+            code: 'PPL012',
+            message: `Lookup append output field '${output.outputName}' must already exist in the source results.`,
+            severity: 'error',
+            span: output.span,
+          });
+          certain = false;
+          continue;
+        }
+        fields.set(output.outputName, mappedTypes(existing).length > 0
+          ? mergeKnownFields(existing, lookupField)
+          : existing);
+      } else {
+        fields.set(output.outputName, lookupField);
+      }
+    }
+    return { fields, certain };
   }
   if (stage.type === 'PatternStage') {
     const pattern = stage as PatternStageNode;
@@ -523,9 +649,18 @@ export function checkSchemaTypes(
   query: string,
   ast: PipelineNode,
   templates: readonly IndexTemplate[],
-  schemaEnabled: boolean = templates.length > 0
+  schemaEnabled: boolean = templates.length > 0,
+  includedIndexes: readonly string[] = []
 ): CoreDiagnostic[] {
   if (!schemaEnabled || query.length === 0 || ast.source.type !== 'SourceStage' || ast.syntaxErrors.length > 0) return [];
+  if (!isSourceIncluded(ast.source.indexName, includedIndexes)) {
+    return [{
+      code: 'PPL011',
+      message: `Source '${ast.source.indexName}' is not included by pplLinter.includedIndexes.`,
+      severity: 'error',
+      span: ast.source.span,
+    }];
+  }
   if (templates.length === 0) {
     return [{ code: 'PPL011', message: `No index templates were loaded for source '${ast.source.indexName}'.`, severity: 'error', span: ast.source.span }];
   }
@@ -538,7 +673,7 @@ export function checkSchemaTypes(
   let certain = true;
   for (const stage of ast.stages) {
     if (!certain) break;
-    const result = applyStage(stage, scope, diagnostics);
+    const result = applyStage(stage, scope, diagnostics, templates, includedIndexes);
     scope = result.fields;
     certain = result.certain;
   }
@@ -548,12 +683,13 @@ export function checkSchemaTypes(
 export function typedFieldScopeAt(
   query: string,
   templates: readonly IndexTemplate[],
-  offset: number
+  offset: number,
+  includedIndexes: readonly string[] = []
 ): Map<string, KnownField> | undefined {
   if (templates.length === 0) return undefined;
   const ast = parsePpl(query);
   if (ast.source.type !== 'SourceStage' || offset < ast.source.span.end.offset) return undefined;
-  let fields = resolveSource(templates, ast.source.indexName);
+  let fields = resolveSource(templates, ast.source.indexName, includedIndexes);
   if (fields.size === 0) return undefined;
 
   for (const stage of ast.stages) {
@@ -561,7 +697,7 @@ export function typedFieldScopeAt(
       const definition = definedFieldAt(stage, fields, offset);
       return definition ? new Map(fields).set(definition.name, definition.field) : fields;
     }
-    const result = applyStage(stage, fields, []);
+    const result = applyStage(stage, fields, [], templates, includedIndexes);
     if (!result.certain) return undefined;
     fields = result.fields;
   }

@@ -71,6 +71,14 @@ describe('field hover lookup', () => {
     expect(fieldInfoAt(query, query.indexOf('event.type'), [])).toBeUndefined();
   });
 
+  it('does not show fields for sources excluded by the configured index allowlist', () => {
+    const query = 'source=auditd-reader | where event.type == "login"';
+    const offset = query.indexOf('event.type');
+
+    expect(fieldInfoAt(query, offset, templates, ['other-*'])).toBeUndefined();
+    expect(fieldInfoAt(query, offset, templates, ['auditd-*'])?.types).toEqual(['string']);
+  });
+
   it('preserves conflicting types on a shared alias', () => {
     const second = parseIndexTemplates(`kind: OpensearchIndexTemplate
 metadata: { name: other }

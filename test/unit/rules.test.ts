@@ -21,7 +21,7 @@ describe('Levenshtein string matching helper', () => {
   });
 });
 
-describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
+describe('Diagnostic Rules Catalog', () => {
   const linter = new PplLinter();
 
   it('PPL001: reports syntax errors', () => {
@@ -108,15 +108,17 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(ppl006?.message).toContain("placed after heavy command 'sort'");
   });
 
-  it('PPL007: warns on assignment operator in boolean condition with fix suggestion', () => {
-    const query = 'source=logs | where status = 200';
-    const diagnostics = linter.lint(query);
+  it('accepts both equality operators in conditions without warnings', () => {
+    const queries = [
+      'source=logs | where status = 200',
+      'source=logs | where status == 200',
+      'source=logs | where not (status = 200)',
+      'source=logs | where isnull(status = 200)',
+    ];
 
-    const ppl007 = diagnostics.find((d) => d.code === 'PPL007');
-    expect(ppl007).toBeDefined();
-    expect(ppl007?.severity).toBe('warning');
-    expect(ppl007?.data?.suggestion).toBe('==');
-    expect(query.slice(ppl007!.span.start.offset, ppl007!.span.end.offset).trim()).toBe('=');
+    for (const query of queries) {
+      expect(linter.lint(query)).toEqual([]);
+    }
   });
 
   it('checks eval expressions and numeric head counts', () => {
@@ -138,28 +140,22 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(new PplLinter({ customCommands: ['trendline'] }).lint('source=logs | trendline count()').some((d) => d.code === 'PPL008')).toBe(true);
   });
 
-  it('checks assignment inside negation and function arguments', () => {
-    expect(linter.lint('source=logs | where not (status = 200)').some((d) => d.code === 'PPL007')).toBe(true);
-    expect(linter.lint('source=logs | where isnull(status = 200)').some((d) => d.code === 'PPL007')).toBe(true);
-    expect(linter.lint('where status = 200').some((d) => d.code === 'PPL007')).toBe(true);
-  });
-
   it('supports configurable severity levels and disabling rules (off)', () => {
     const customLinter = new PplLinter({
       rules: {
-        PPL007: 'off',
-        PPL006: 'info',
+        PPL006: 'off',
+        PPL005: 'info',
       },
     });
 
-    const query = 'source=logs | sort bytes | where status = 200';
+    const query = 'source=logs | sort bytes | where status = 200 | stats unknow_func(bytes)';
     const diagnostics = customLinter.lint(query);
 
-    expect(diagnostics.some((d) => d.code === 'PPL007')).toBe(false);
+    expect(diagnostics.some((d) => d.code === 'PPL006')).toBe(false);
 
-    const ppl006 = diagnostics.find((d) => d.code === 'PPL006');
-    expect(ppl006).toBeDefined();
-    expect(ppl006?.severity).toBe('info');
+    const ppl005 = diagnostics.find((d) => d.code === 'PPL005');
+    expect(ppl005).toBeDefined();
+    expect(ppl005?.severity).toBe('info');
   });
 
   it('PPL003: supports user-defined customCommands and typo matching', () => {

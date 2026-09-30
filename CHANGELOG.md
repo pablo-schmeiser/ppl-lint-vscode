@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Treat `=` and `==` as valid equality operators in conditions; remove the PPL007 warning and quick-fix.
+### Added
+- Extend AST-backed validation for OpenSearch 3.5 PPL commands and functions, including index-template-aware field resolution and type checks for expressions, casts, operators, and function arguments.
+
+### Breaking Changes
+- Remove `PPL007` and its quick-fix. Both `=` and `==` are accepted as equality operators in conditions; remove any `pplLinter.rules.PPL007` override.
+- Configured OpenSearch versions below 3.5 are rejected with `PPL010`, which stops further linting. Select version 3.5 or later.
 
 ## [0.1.0] - 2026-09-11
 

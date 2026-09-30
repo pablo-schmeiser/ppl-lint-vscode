@@ -6,6 +6,14 @@ import { parseIndexTemplates, resolveSource } from '../../src/core/indexTemplate
 import { absoluteGlobParts, findAbsoluteFiles } from '../../src/vscode/templateFiles';
 
 describe('absolute template globs', () => {
+  it('normalizes Windows separators in glob patterns', () => {
+    const glob = String.raw`D:\workspace\test\fixtures\**\*.yaml`;
+    expect(absoluteGlobParts(glob)).toEqual({
+      base: String.raw`D:\workspace\test\fixtures`,
+      pattern: '**/*.yaml',
+    });
+  });
+
   it('splits the static base from the pattern and discovers matching files', async () => {
     const fixtures = path.resolve('test/fixtures');
     const glob = path.join(fixtures, '**/*.yaml');

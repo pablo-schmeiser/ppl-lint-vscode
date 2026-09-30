@@ -3,11 +3,17 @@ import * as path from 'node:path';
 import { minimatch } from 'minimatch';
 
 export function absoluteGlobParts(glob: string): { base: string; pattern: string } {
-  const wildcard = glob.search(/[*?{\[]/);
-  const separator = wildcard < 0 ? glob.lastIndexOf(path.sep) : glob.lastIndexOf(path.sep, wildcard);
+  const windowsPath = path.sep === '\\' || /^[A-Za-z]:[\\/]/.test(glob) || glob.startsWith('\\\\');
+  const pathApi = windowsPath ? path.win32 : path;
+  const normalizedGlob = windowsPath ? glob.replaceAll('/', '\\') : glob;
+  const wildcard = normalizedGlob.search(/[*?{\[]/);
+  const separator = wildcard < 0
+    ? normalizedGlob.lastIndexOf(pathApi.sep)
+    : normalizedGlob.lastIndexOf(pathApi.sep, wildcard);
+  const root = pathApi.parse(normalizedGlob).root;
   return {
-    base: glob.slice(0, separator) || path.parse(glob).root,
-    pattern: glob.slice(separator + 1),
+    base: separator < root.length ? root : normalizedGlob.slice(0, separator),
+    pattern: normalizedGlob.slice(separator + 1).split(pathApi.sep).join('/'),
   };
 }
 

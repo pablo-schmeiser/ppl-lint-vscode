@@ -830,7 +830,9 @@ export class PplParser {
     } else if (!this.check(TokenType.PIPE) && !this.isAtEnd()) {
       dataset = this.parseFieldIdentifier('Expected join dataset') ?? undefined;
     }
-    if (this.match(TokenType.AS)) this.parseFieldIdentifier('Expected dataset alias');
+    const datasetAlias = this.match(TokenType.AS)
+      ? this.parseFieldIdentifier('Expected dataset alias') ?? undefined
+      : undefined;
     if (!dataset || (!criteria && fields.length === 0 && !('left' in options))) {
       this.recordError('join requires a dataset and join fields or criteria', start.span);
     }
@@ -838,7 +840,7 @@ export class PplParser {
       this.recordError('Unexpected join argument', this.peek().span);
       this.synchronizeToNextPipe();
     }
-    return { type: 'JoinStage', commandName: 'join', joinType, options, criteria, fields, dataset,
+    return { type: 'JoinStage', commandName: 'join', joinType, options, criteria, fields, dataset, datasetAlias,
       span: { start: start.span.start, end: this.previous().span.end } };
   }
 

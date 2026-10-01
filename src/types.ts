@@ -259,6 +259,7 @@ export interface JoinStageNode extends PipeStageNode {
   criteria?: ExpressionNode;
   fields: IdentifierNode[];
   dataset?: IdentifierNode | PipelineNode;
+  datasetAlias?: IdentifierNode;
 }
 
 export interface ErrorNode extends BaseASTNode {

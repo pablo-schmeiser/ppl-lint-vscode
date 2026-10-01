@@ -1,13 +1,13 @@
-import { fieldsAt, fieldsBeforeStageAt } from './fieldScope';
+import { fieldsAt, fieldsBeforeStageAt, joinDatasetFields } from './fieldScope';
 import { AGGREGATION_FUNCTIONS, DEFAULT_KNOWN_FUNCTIONS } from './catalog/functions';
 import { COMMAND_DOCS, DEFAULT_KNOWN_COMMANDS } from './catalog/commands';
 import { functionDocumentation, renderFunctionDocumentation } from './catalog/functionDocumentation';
 import { argumentConstraint, FunctionSignature, FUNCTION_SIGNATURES, getFunctionSignature, TypeConstraint } from './catalog/functionSignatures';
-import { IndexTemplate, isSourceIncluded, resolveSource } from './indexTemplates';
+import { IndexTemplate, KnownField, isSourceIncluded, resolveSource } from './indexTemplates';
 import { parsePpl } from './parser/parser';
 import { tokenize } from './lexer/tokenizer';
 import { PPL_TYPES, PplType } from './pplTypes';
-import { Token, TokenType } from '../types';
+import { JoinStageNode, Token, TokenType } from '../types';
 
 export interface Candidate {
   label: string;
@@ -126,8 +126,21 @@ function hasWhereContinuation(segment: Token[]): boolean {
   }
   const condition = segment.slice(lastLogicalOperator + 1);
   const last = condition.at(-1);
-  return Boolean(last && COMPLETED_EXPRESSION_ENDS.has(last.type) &&
-    condition.slice(0, -1).some((token) => COMPARISON_OPERATORS.has(token.type)));
+  if (!last || !COMPLETED_EXPRESSION_ENDS.has(last.type)) return false;
+  if (condition.slice(0, -1).some((token) => COMPARISON_OPERATORS.has(token.type))) return true;
+  if (last.type !== TokenType.RPAREN) return false;
+  let depth = 0;
+  for (let index = condition.length - 1; index >= 0; index--) {
+    if (condition[index].type === TokenType.RPAREN) depth++;
+    if (condition[index].type === TokenType.LPAREN) {
+      depth--;
+      if (depth === 0) {
+        const name = condition[index - 1];
+        return Boolean(name && isWordToken(name) && getFunctionSignature(name.value, 'where')?.returnType === 'boolean');
+      }
+    }
+  }
+  return false;
 }
 
 function cursorContext(query: string, offset: number): CursorContext | undefined {
@@ -167,7 +180,14 @@ function cursorContext(query: string, offset: number): CursorContext | undefined
   const afterLastComma = lastTokenIndex(segment, TokenType.COMMA);
   const evalExpression = command === 'eval' && afterLastAssign > afterLastComma;
   const expression = ['where', 'stats', 'eventstats', 'streamstats', 'timechart'].includes(command) || evalExpression || Boolean(call);
-  const fieldOnly = ['fields', 'table', 'sort', 'dedup'].includes(command) || command === 'rename';
+  const singleFieldCommand = ['grok', 'patterns', 'parse', 'regex', 'bin'].includes(command) && segment.length === 1;
+  const rexField = command === 'rex' && segment.at(-1)?.type === TokenType.ASSIGN &&
+    segment.at(-2)?.value.toLowerCase() === 'field';
+  const joinCommand = command === 'join' ||
+    (['inner', 'left', 'right', 'full', 'cross'].includes(command) &&
+      segment.some((token) => token.value.toLowerCase() === 'join'));
+  const fieldOnly = ['fields', 'table', 'sort', 'dedup', 'top', 'rare', 'rename'].includes(command) ||
+    singleFieldCommand || rexField || command === 'lookup' || joinCommand;
   if (!expression && !fieldOnly) return undefined;
   if (command === 'eval' && !evalExpression && !call) return undefined;
   if (command === 'rename' && segment.some((token) => token.type === TokenType.AS)) return undefined;
@@ -195,6 +215,9 @@ function constraintAccepts(constraint: TypeConstraint | undefined, type: PplType
 
 function functionReturnsConstraint(signature: FunctionSignature, constraint?: TypeConstraint): boolean {
   if (!constraint || constraint === 'any') return true;
+  if (signature.returnType === 'if' || signature.returnType === 'case') return true;
+  if (signature.returnType === 'fromUnixTime') return ['temporal', 'stringLike', 'string'].includes(constraint);
+  if (signature.returnType === 'addDate') return constraint === 'temporal';
   if (constraint === 'numeric') {
     return signature.returnType === 'widerNumeric' ||
       (typeof signature.returnType === 'string' && NUMERIC_TYPES.has(signature.returnType as PplType)) ||
@@ -230,10 +253,13 @@ function fieldCandidates(
   const source = sourceName(query);
   if (!source) return [];
   const sourceFields = resolveSource(templates, source, includedIndexes);
-  const projectionContext = ['fields', 'table'].includes(cursorContext(query, offset)?.command || '');
-  const fields = projectionContext
-    ? fieldsBeforeStageAt(query, sourceFields, offset, ['fields', 'table'])
-    : fieldsAt(query, sourceFields, offset);
+  const command = cursorContext(query, offset)?.command || '';
+  const projectionContext = ['fields', 'table'].includes(command);
+  const inputContext = projectionContext || ['stats', 'eventstats', 'streamstats'].includes(command);
+  const lookupFields = (name: string): Map<string, KnownField> => resolveSource(templates, name, includedIndexes);
+  const fields = inputContext
+    ? fieldsBeforeStageAt(query, sourceFields, offset, ['fields', 'table', 'stats', 'eventstats', 'streamstats'], lookupFields)
+    : fieldsAt(query, sourceFields, offset, lookupFields);
   const prefixStart = offset - prefix.length;
   const selected = projectionContext
     ? new Set(activeCommandTokens(tokenize(query.slice(0, offset)).filter((token) => token.type !== TokenType.EOF))
@@ -241,6 +267,15 @@ function fieldCandidates(
       .filter((token) => token.type === TokenType.IDENTIFIER && token.span.end.offset <= prefixStart)
       .map((token) => token.value))
     : new Set<string>();
+  return mappedFieldCandidates(fields, prefix, constraint, selected);
+}
+
+function mappedFieldCandidates(
+  fields: Map<string, KnownField>,
+  prefix: string,
+  constraint?: TypeConstraint,
+  selected: ReadonlySet<string> = new Set()
+): Candidate[] {
   return [...fields].flatMap(([label, field]) => {
     if (!label.toLowerCase().startsWith(prefix.toLowerCase())) return [];
     if (selected.has(label)) return [];
@@ -260,12 +295,13 @@ function fieldCandidates(
   });
 }
 
-function functionCandidates(prefix: string, command: string, constraint?: TypeConstraint): Candidate[] {
+function functionCandidates(prefix: string, command: string, constraint?: TypeConstraint, insideCall = false): Candidate[] {
   const aggregateOnly = ['stats', 'eventstats', 'streamstats', 'timechart'].includes(command);
   const names = [...new Set(DEFAULT_KNOWN_FUNCTIONS)];
   return names.flatMap((name) => {
     if (!name.toLowerCase().startsWith(prefix.toLowerCase())) return [];
-    if (aggregateOnly && !AGGREGATION_FUNCTIONS.includes(name as (typeof AGGREGATION_FUNCTIONS)[number])) return [];
+    const isAggregate = AGGREGATION_FUNCTIONS.includes(name as (typeof AGGREGATION_FUNCTIONS)[number]);
+    if (aggregateOnly && (insideCall ? isAggregate : !isAggregate)) return [];
     const signature = getFunctionSignature(name, command || undefined);
     if (FUNCTION_SIGNATURES.has(name.toLowerCase()) && !signature) return [];
     if (constraint && (!signature || !functionReturnsConstraint(signature, constraint))) return [];
@@ -316,10 +352,104 @@ function whereContinuationCandidates(prefix: string): Candidate[] {
   return candidates.filter((candidate) => candidate.label.toLowerCase().startsWith(prefix.toLowerCase()));
 }
 
+function keywordCandidates(prefix: string, labels: readonly string[]): Candidate[] {
+  return labels.filter((label) => label.toLowerCase().startsWith(prefix.toLowerCase()))
+    .map((label) => ({ label, kind: 'keyword' as const, detail: 'PPL keyword',
+      insertText: `${label} `, retriggerAfterAccept: true }));
+}
+
 function functionArgumentConstraint(frame: CallFrame | undefined, command: string): TypeConstraint | undefined {
   if (!frame?.name) return undefined;
   const signature = getFunctionSignature(frame.name, command || undefined);
   return signature && argumentConstraint(signature, frame.argumentIndex);
+}
+
+function joinSubqueryStart(query: string, offset: number): number | undefined {
+  if (query.lastIndexOf('[', offset - 1) < 0) return undefined;
+  const tokens = tokenize(query.slice(0, offset)).filter((token) => token.type !== TokenType.EOF);
+  const brackets: number[] = [];
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index].type === TokenType.LBRACKET) brackets.push(index);
+    if (tokens[index].type === TokenType.RBRACKET) brackets.pop();
+  }
+  const open = brackets.at(-1);
+  if (open === undefined) return undefined;
+  const stage = activeCommandTokens(tokens.slice(0, open));
+  if (!stage.some((token) => token.value.toLowerCase() === 'join')) return undefined;
+  const inner = query.slice(tokens[open].span.end.offset, offset).trimStart();
+  return !inner || /^(source|search)\b/i.test(inner) ? tokens[open].span.end.offset : undefined;
+}
+
+function joinCandidates(
+  query: string,
+  offset: number,
+  prefix: string,
+  templates: readonly IndexTemplate[],
+  includedIndexes: readonly string[],
+  call?: CallFrame
+): Candidate[] {
+  const segment = activeCommandTokens(tokenize(query.slice(0, offset - prefix.length))
+    .filter((token) => token.type !== TokenType.EOF));
+  const joinIndex = segment.findIndex((token) => token.value.toLowerCase() === 'join');
+  if (joinIndex < 0) return [];
+  const operands = segment.slice(joinIndex + 1);
+  const aliases: Record<string, string> = {};
+  let index = 0;
+  while (['left', 'right', 'type', 'overwrite', 'max'].includes(operands[index]?.value.toLowerCase()) &&
+         operands[index + 1]?.type === TokenType.ASSIGN) {
+    if (!operands[index + 2]) {
+      const option = operands[index].value.toLowerCase();
+      return keywordCandidates(prefix, option === 'type'
+        ? ['inner', 'left', 'right', 'full', 'outer', 'cross', 'semi', 'anti']
+        : option === 'overwrite' ? ['true', 'false'] : []);
+    }
+    aliases[operands[index].value.toLowerCase()] = operands[index + 2].value;
+    index += 3;
+  }
+  const remaining = operands.slice(index);
+  if (remaining.at(-1)?.type === TokenType.AS) return [];
+  const criteria = ['on', 'where'].includes(remaining[0]?.value.toLowerCase());
+  if (criteria) {
+    const ast = parsePpl(query);
+    const stage = [...ast.stages].reverse().find((item) => item.type === 'JoinStage' && item.span.start.offset <= offset);
+    const dataset = (stage as JoinStageNode | undefined)?.dataset;
+    if (dataset && offset > dataset.span.end.offset) {
+      return /\bas\b/i.test(query.slice(dataset.span.end.offset, offset))
+        ? [] : keywordCandidates(prefix, ['as']);
+    }
+    const last = remaining.at(-1);
+    if (last && COMPLETED_EXPRESSION_ENDS.has(last.type) &&
+        remaining.slice(1, -1).some((token) => COMPARISON_OPERATORS.has(token.type))) {
+      return [...keywordCandidates(prefix, ['AND', 'OR']), ...cursorSourceCandidates(prefix, templates, includedIndexes)];
+    }
+    const constraint = functionArgumentConstraint(call, 'where');
+    const left = fieldCandidates(query, offset, '', templates, constraint, includedIndexes)
+      .map((candidate) => ({ ...candidate, label: aliases.left ? `${aliases.left}.${candidate.label}` : candidate.label,
+        insertText: aliases.left ? `${aliases.left}.${candidate.label}` : candidate.label }));
+    const rightFields = joinDatasetFields(query, dataset, (name) => resolveSource(templates, name, includedIndexes));
+    const rightAlias = aliases.right || (stage as JoinStageNode | undefined)?.datasetAlias?.name;
+    const right = mappedFieldCandidates(new Map([...rightFields]
+      .map(([name, field]) => [rightAlias ? `${rightAlias}.${name}` : name, field])), prefix, constraint);
+    const functions = functionCandidates(prefix, 'where', constraint)
+      .filter((candidate) => !AGGREGATION_FUNCTIONS.includes(candidate.label));
+    return [...functions, ...left.filter((candidate) => candidate.label.toLowerCase().startsWith(prefix.toLowerCase())), ...right];
+  }
+  if (remaining.length === 0 || remaining.at(-1)?.type === TokenType.COMMA) {
+    const fields = fieldCandidates(query, offset, prefix, templates, undefined, includedIndexes);
+    if (remaining.length > 0) return fields;
+    const options = ['type', 'overwrite', 'max', 'left', 'right']
+      .filter((name) => !(name in aliases) && name.startsWith(prefix.toLowerCase()))
+      .map((label) => ({ label, kind: 'keyword' as const, detail: 'Join option',
+        insertText: `${label}=`, retriggerAfterAccept: true }));
+    return [...fields, ...options, ...keywordCandidates(prefix, ['on', 'where'])];
+  }
+  if (remaining.some((token) => token.type === TokenType.LBRACKET)) return [];
+  const last = remaining.at(-1);
+  if (last?.type === TokenType.IDENTIFIER &&
+      (remaining.length === 1 || remaining.at(-2)?.type === TokenType.COMMA)) {
+    return cursorSourceCandidates(prefix, templates, includedIndexes);
+  }
+  return [];
 }
 
 export function completionCandidates(
@@ -328,6 +458,10 @@ export function completionCandidates(
   templates: readonly IndexTemplate[],
   includedIndexes: readonly string[] = []
 ): Candidate[] {
+  const subqueryStart = joinSubqueryStart(query, offset);
+  if (subqueryStart !== undefined) {
+    return completionCandidates(query.slice(subqueryStart, offset), offset - subqueryStart, templates, includedIndexes);
+  }
   const context = cursorContext(query, offset);
   if (!context) return [];
   if (context.sourceCompletion) return cursorSourceCandidates(context.prefix, templates, includedIndexes);
@@ -338,8 +472,63 @@ export function completionCandidates(
       .map((label) => ({ label, kind: 'type' as const, detail: 'PPL data type', insertText: label }));
   }
 
+  if (context.command === 'join' || ['inner', 'left', 'right', 'full', 'cross'].includes(context.command)) {
+    return joinCandidates(query, offset, context.prefix, templates, includedIndexes, context.call);
+  }
+
+  if (context.command === 'lookup') {
+    const segment = activeCommandTokens(tokenize(query.slice(0, offset - context.prefix.length))
+      .filter((token) => token.type !== TokenType.EOF));
+    if (segment.length === 1) return cursorSourceCandidates(context.prefix, templates, includedIndexes);
+    const modeIndex = segment.findIndex((token, index) => index > 1 &&
+      ['replace', 'append', 'output'].includes(token.value.toLowerCase()));
+    if (segment.at(-1)?.type === TokenType.AS) {
+      return modeIndex < 0 || segment[modeIndex].value.toLowerCase() === 'append'
+        ? fieldCandidates(query, offset, context.prefix, templates, undefined, includedIndexes)
+        : [];
+    }
+    if (segment.length === 2 || segment.at(-1)?.type === TokenType.COMMA ||
+        (modeIndex >= 0 && segment.length === modeIndex + 1)) {
+      return mappedFieldCandidates(resolveSource(templates, segment[1].value, includedIndexes), context.prefix);
+    }
+    if (segment.at(-1)?.type === TokenType.IDENTIFIER) {
+      return keywordCandidates(context.prefix, modeIndex >= 0
+        ? ['as']
+        : segment.at(-2)?.type === TokenType.AS
+          ? ['replace', 'append', 'output']
+          : ['as', 'replace', 'append', 'output']);
+    }
+    return [];
+  }
+
   if (['fields', 'table'].includes(context.command) && context.fieldOnly) {
     return fieldCandidates(query, offset, context.prefix, templates, undefined, includedIndexes);
+  }
+
+  if (['stats', 'eventstats', 'streamstats', 'timechart'].includes(context.command)) {
+    const segment = activeCommandTokens(tokenize(query.slice(0, offset - context.prefix.length))
+      .filter((token) => token.type !== TokenType.EOF));
+    const assign = lastTokenIndex(segment, TokenType.ASSIGN);
+    const option = segment[assign - 1]?.value.toLowerCase();
+    const options = context.command === 'timechart'
+      ? ['timefield', 'span', 'limit', 'useother', 'usenull', 'nullstr']
+      : context.command === 'streamstats'
+        ? ['bucket_nullable', 'current', 'window', 'global', 'reset_before', 'reset_after']
+        : ['bucket_nullable'];
+    if (assign > 0 && segment.length === assign + 1 && options.includes(option)) {
+      const fields = fieldCandidates(query, offset, context.prefix, templates, undefined, includedIndexes);
+      if (option === 'timefield') return fields;
+      if (option === 'reset_before' || option === 'reset_after') {
+        return [...functionCandidates(context.prefix, 'where'), ...fields];
+      }
+      return [];
+    }
+    if (!context.call && segment.some((token) => token.type === TokenType.BY)) {
+      const fields = fieldCandidates(query, offset, context.prefix, templates, undefined, includedIndexes);
+      if (context.command === 'timechart') return fields;
+      return [...fields, ...functionCandidates(context.prefix, context.command).filter((candidate) => candidate.label === 'span')];
+    }
+    if (!context.call) return functionCandidates(context.prefix, context.command);
   }
 
   const constraint = functionArgumentConstraint(context.call, context.command);
@@ -353,7 +542,7 @@ export function completionCandidates(
     ? fieldCandidates(query, offset, context.prefix, templates, constraint, includedIndexes)
     : [];
   const functions = context.expression
-    ? functionCandidates(context.prefix, context.command, constraint)
+    ? functionCandidates(context.prefix, context.command, constraint, Boolean(context.call))
     : [];
   const candidates = [...functions, ...fields];
   const seen = new Set<string>();

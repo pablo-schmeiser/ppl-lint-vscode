@@ -35,7 +35,7 @@ TOML extraction currently handles section headers, dotted bare keys, and quoted 
 - 🛡️ **Resilient Parser with Error Recovery**: Parsing recovers across `|` pipes so syntax errors in one stage never cascade down the pipeline.
 - 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command and function typos (`Ctrl+.` or `Cmd+.`). A missing source requires you to supply an index name.
 - 📖 **Command Documentation Hovers**: Hover over any PPL command (`where`, `stats`, `eval`, `dedup`, `sort`, `rename`, `grok`, etc.) to view syntax templates, descriptions, and official OpenSearch documentation links.
-- **Context-Aware Suggestions**: Suggest pipeline commands after `|`, aggregation functions after `stats`, and PPL functions while writing expressions. Function-argument fields are filtered by type, CAST targets are suggested, and string fields accepted through numeric coercion are marked as potentially unsafe.
+- **Context-Aware Suggestions**: Suggest pipeline commands after `|`, aggregation functions after `stats`, and PPL functions while writing expressions. Function-argument fields are filtered by type, CAST targets are suggested, and string fields accepted through numeric coercion are marked as potentially unsafe. Lookup completion separates index fields from source fields and carries output fields into later stages; join completion covers options, datasets, aliases, criteria, subqueries, and known output fields.
 - **Mapped Field Hovers**: Hover over a field such as `event.type` to see its normalized PPL type and the index template that supplied it. Computed fields show their inferred PPL type and pipeline origin.
 - 🎨 **TextMate Syntax Highlighting**: Rich colorization for commands, functions, operators, comments, and identifiers.
 

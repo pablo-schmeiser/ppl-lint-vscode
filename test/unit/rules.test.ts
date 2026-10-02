@@ -240,4 +240,3 @@ describe('OpenSearch version selection', () => {
     expect(unaffected.diagnostics).toHaveLength(0);
   });
 });
-

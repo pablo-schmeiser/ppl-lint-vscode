@@ -270,4 +270,3 @@ default_query: "source=legacy | stats count()"
     expect(queries[0].rawText).toBe('source=logs | where code == 200');
   });
 });
-

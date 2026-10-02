@@ -13,6 +13,23 @@ export const AGGREGATION_FUNCTIONS: readonly string[] = [
   'stddev_pop',
   'stddev_samp',
   'percentile',
+  'percentile_approx',
+  'dc',
+  'distinct_count',
+  'distinct_count_approx',
+  'first',
+  'last',
+  'list',
+  'values',
+  'take',
+  'median',
+  'per_second',
+  'per_minute',
+  'per_hour',
+  'per_day',
+  'span',
+  'earliest',
+  'latest',
 ] as const;
 
 export const MATH_FUNCTIONS: readonly string[] = [
@@ -44,7 +61,14 @@ export const STRING_FUNCTIONS: readonly string[] = [
   'substr',
   'substring',
   'replace',
+  'right',
   'regexp_extract',
+  'regexp_match',
+  'match_phrase',
+  'regexp_replace',
+  'like',
+  'ilike',
+  'position',
 ] as const;
 
 export const DATETIME_FUNCTIONS: readonly string[] = [
@@ -56,9 +80,23 @@ export const DATETIME_FUNCTIONS: readonly string[] = [
   'year',
   'month',
   'day',
+  'dayname',
   'hour',
   'minute',
   'second',
+  'timestampadd',
+  'timestampdiff',
+  'convert_tz',
+  'adddate',
+  'date',
+  'from_unixtime',
+  'unix_timestamp',
+  'extract',
+  'timestamp',
+] as const;
+
+export const ARRAY_FUNCTIONS: readonly string[] = [
+  'array_length',
 ] as const;
 
 export const CONDITIONAL_FUNCTIONS: readonly string[] = [
@@ -68,6 +106,12 @@ export const CONDITIONAL_FUNCTIONS: readonly string[] = [
   'isnull',
   'isnotnull',
   'nullif',
+  'ifnull',
+  'ispresent',
+  'isblank',
+  'isempty',
+  'cidrmatch',
+  'eval',
 ] as const;
 
 export const TYPE_AND_CRYPTO_FUNCTIONS: readonly string[] = [
@@ -82,6 +126,7 @@ export const DEFAULT_KNOWN_FUNCTIONS: readonly string[] = [
   ...AGGREGATION_FUNCTIONS,
   ...MATH_FUNCTIONS,
   ...STRING_FUNCTIONS,
+  ...ARRAY_FUNCTIONS,
   ...DATETIME_FUNCTIONS,
   ...CONDITIONAL_FUNCTIONS,
   ...TYPE_AND_CRYPTO_FUNCTIONS,

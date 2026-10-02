@@ -28,6 +28,10 @@
     "json"
   ],
   "activationEvents": [
+    "onLanguage:yaml",
+    "onLanguage:toml",
+    "onLanguage:json",
+    "onLanguage:jsonc",
     "workspaceContains:**/*.ppl",
     "workspaceContains:**/*.yaml",
     "workspaceContains:**/*.yml",
@@ -37,9 +41,10 @@
     "build": "node esbuild.config.mjs --production",
     "watch": "node esbuild.config.mjs --watch",
     "test": "vitest run",
+    "test:conformance": "vitest run --config vitest.conformance.config.mts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint src",
     "compile": "tsc -p ./ --noEmit",
     "package": "npx @vscode/vsce package --no-dependencies"
   },
@@ -76,6 +81,16 @@
         "command": "pplLinter.toggleEnabled",
         "title": "PPL: Toggle Linting Enabled",
         "category": "PPL"
+      },
+      {
+        "command": "pplLinter.refreshOpenSearchIndexTemplates",
+        "title": "PPL: Refresh OpenSearch Index Patterns",
+        "category": "PPL"
+      },
+      {
+        "command": "pplLinter.showOpenSearchLogs",
+        "title": "PPL: Show OpenSearch Logs",
+        "category": "PPL"
       }
     ],
     "configuration": {
@@ -85,6 +100,40 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable PPL linting globally."
+        },
+        "pplLinter.openSearchVersion": {
+          "type": "string",
+          "default": "3.5",
+          "description": "Target OpenSearch version (major.minor or major.minor.patch, minimum 3.5). Newer unverified versions use the 3.5 baseline with a warning."
+        },
+        "pplLinter.indexTemplateGlob": {
+          "type": "string",
+          "default": "",
+          "description": "Glob for local OpenSearch index-template YAML files, relative to the workspace or absolute for external folders. Remote templates are fetched from OpenSearch separately."
+        },
+        "pplLinter.openSearchTemplateNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional list of OpenSearch index-template names or wildcard patterns to fetch. Empty fetches all templates."
+        },
+        "pplLinter.openSearchMappingIndexes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Index names, aliases, or * and ? patterns whose live mappings should be fetched from the configured OpenSearch domain, for example mam_*."
+        },
+        "pplLinter.includedIndexes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional allowlist of PPL source index names, aliases, or patterns using * and ?. Empty includes all sources."
         },
         "pplLinter.standalone": {
           "type": "object",
@@ -256,7 +305,14 @@
             "PPL004": "error",
             "PPL005": "warning",
             "PPL006": "warning",
-            "PPL007": "warning"
+            "PPL008": "error",
+            "PPL009": "warning",
+            "PPL010": "error",
+            "PPL011": "error",
+            "PPL012": "error",
+            "PPL013": "error",
+            "PPL014": "error",
+            "PPL015": "warning"
           },
           "properties": {
             "PPL001": {
@@ -325,7 +381,18 @@
               "default": "warning",
               "description": "PPL006: Late Filter Performance Warning"
             },
-            "PPL007": {
+            "PPL008": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL008: Validation not implemented for raw-argument stages"
+            },
+            "PPL009": {
               "type": "string",
               "enum": [
                 "error",
@@ -334,7 +401,48 @@
                 "off"
               ],
               "default": "warning",
-              "description": "PPL007: Assignment In Boolean Condition"
+              "description": "PPL009: Selected OpenSearch version has not been verified"
+            },
+            "PPL010": {
+              "type": "string",
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
+              "default": "error",
+              "description": "PPL010: Selected OpenSearch version is invalid or older than 3.5"
+            },
+            "PPL011": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL011: No configured index template matches the source"
+            },
+            "PPL012": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL012: Field is not declared or has no supported PPL type"
+            },
+            "PPL013": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL013: Field has conflicting mapped PPL types"
+            },
+            "PPL014": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "error",
+              "description": "PPL014: Function arguments, casts or operators have incompatible types"
+            },
+            "PPL015": {
+              "type": "string",
+              "enum": ["error", "warning", "info", "off"],
+              "default": "warning",
+              "description": "PPL015: Implicit conversion may fail for some values"
             }
           }
         },
@@ -367,7 +475,9 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "prettier": "^3.9.6",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

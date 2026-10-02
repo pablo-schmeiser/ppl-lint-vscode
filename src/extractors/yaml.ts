@@ -1,7 +1,7 @@
 import { minimatch } from 'minimatch';
 import * as YAML from 'yaml';
 import { ExtractedQuery, StructuredExtractor } from '../types';
-import { LineMapping, LineOffsetSourceMap, offsetToPosition } from './sourcemap';
+import { LineMapping, LineOffsetSourceMap, offsetToPosition, UnmappableSourceMap } from './sourcemap';
 
 export class YamlExtractor implements StructuredExtractor {
   public format: 'yaml' = 'yaml';
@@ -82,7 +82,7 @@ export class YamlExtractor implements StructuredExtractor {
     node: YAML.Scalar,
     documentText: string,
     hostLines: string[]
-  ): LineOffsetSourceMap {
+  ): LineOffsetSourceMap | UnmappableSourceMap {
     const lineMap: LineMapping[] = [];
     const textVal = String(node.value);
     const snippetLines = textVal.split(/\r?\n/);
@@ -90,7 +90,9 @@ export class YamlExtractor implements StructuredExtractor {
     const range = node.range || [0, 0, 0];
     const scalarStartOffset = range[0];
 
-    if (node.type === 'BLOCK_LITERAL' || node.type === 'BLOCK_FOLDED') {
+    if (node.type === 'BLOCK_FOLDED') return new UnmappableSourceMap();
+
+    if (node.type === 'BLOCK_LITERAL') {
       const indicatorPos = offsetToPosition(documentText, scalarStartOffset);
       const startHostLine = indicatorPos.line + 1;
 
@@ -105,8 +107,7 @@ export class YamlExtractor implements StructuredExtractor {
           if (idx >= 0) {
             hostColOffset = idx;
           } else {
-            const indentMatch = hostLineText.search(/\S/);
-            hostColOffset = Math.max(indentMatch, 0);
+            return new UnmappableSourceMap();
           }
         } else {
           const firstLineIndent = hostLines[startHostLine]?.search(/\S/);
@@ -123,6 +124,11 @@ export class YamlExtractor implements StructuredExtractor {
       const contentStartOffset = isQuoted
         ? scalarStartOffset + 1
         : scalarStartOffset;
+      const rawContent = documentText.slice(
+        contentStartOffset,
+        range[1] - (isQuoted ? 1 : 0)
+      );
+      if (rawContent !== textVal) return new UnmappableSourceMap();
       const startPos = offsetToPosition(documentText, contentStartOffset);
 
       for (let i = 0; i < snippetLines.length; i++) {

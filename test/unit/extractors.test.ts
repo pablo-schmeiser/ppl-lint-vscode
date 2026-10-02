@@ -15,9 +15,12 @@ describe('SourceCoordinateMap', () => {
       end: { line: 1, col: 6, offset: 4 },
     };
 
-    const translated = map.translate(span);
+    const translated = map.translate(span)!;
     expect(translated.start).toEqual({ line: 6, col: 6 });
     expect(translated.end).toEqual({ line: 6, col: 10 });
+    expect(map.toSnippet({ line: 6, col: 6 }, 'source=logs\n| where status > 0')).toEqual({ line: 1, col: 2 });
+    expect(map.toSnippet({ line: 6, col: 3 }, 'source=logs\n| where status > 0')).toBeUndefined();
+    expect(map.toSnippet({ line: 6, col: 50 }, 'source=logs\n| where status > 0')).toBeUndefined();
   });
 });
 
@@ -42,7 +45,7 @@ rule:
       end: { line: 1, col: 7, offset: 5 },
     };
 
-    const hostRange = queries[0].sourceMap.translate(snippetSpan);
+    const hostRange = queries[0].sourceMap.translate(snippetSpan)!;
     // query is on line 3 (0-indexed: 4 for source=http_logs, 5 for | where status >= 500)
     expect(hostRange.start.line).toBe(5);
     // Indentation is 4 spaces + col 2 = col 6
@@ -80,6 +83,20 @@ rule:
     const queries = extractQueries(malformed, 'yaml', ['*'], true);
     expect(queries).toEqual([]);
   });
+
+  it('does not map decoded or folded scalars to approximate positions', () => {
+    for (const yaml of [
+      'query: "source=logs\\n| stat count()"',
+      'query: >\n  source=logs\n  | stat count()\n',
+    ]) {
+      const [query] = extractQueries(yaml, 'yaml', ['query'], false);
+      expect(query.sourceMap.translate({
+        start: { line: 0, col: 0, offset: 0 },
+        end: { line: 0, col: 6, offset: 6 },
+      })).toBeUndefined();
+      expect(query.sourceMap.toSnippet({ line: 1, col: 4 }, query.rawText)).toBeUndefined();
+    }
+  });
 });
 
 describe('JSON Extractor', () => {
@@ -104,9 +121,18 @@ describe('JSON Extractor', () => {
       end: { line: 0, col: 6, offset: 6 },
     };
 
-    const hostRange = queries[0].sourceMap.translate(span);
+    const hostRange = queries[0].sourceMap.translate(span)!;
     expect(hostRange.start.line).toBeGreaterThan(0);
     expect(hostRange.start.col).toBeGreaterThan(0);
+  });
+
+  it('does not offer approximate positions for escaped JSON strings', () => {
+    const [query] = extractQueries('{"query":"source=logs\\n| stat count()"}', 'json', ['query'], false);
+    expect(query.rawText).toContain('\n');
+    expect(query.sourceMap.translate({
+      start: { line: 1, col: 2, offset: 14 },
+      end: { line: 1, col: 6, offset: 18 },
+    })).toBeUndefined();
   });
 });
 
@@ -130,6 +156,26 @@ source=app_logs
     const malformed = `[invalid toml\nkey = `;
     const queries = extractQueries(malformed, 'toml', ['*'], true);
     expect(queries).toEqual([]);
+  });
+
+  it('does not map escaped TOML basic strings as raw positions', () => {
+    const [query] = extractQueries('query = "source=logs\\n| stat count()"', 'toml', ['query'], false);
+    expect(query.rawText).toBe('source=logs\n| stat count()');
+    expect(query.sourceMap.translate({
+      start: { line: 0, col: 0, offset: 0 },
+      end: { line: 0, col: 6, offset: 6 },
+    })).toBeUndefined();
+  });
+
+  it('maps indented TOML multiline text at its original column', () => {
+    const text = '[section]\nquery = """\n  source=logs\n  | stat count()\n"""\n';
+    const [query] = extractQueries(text, 'toml', ['section.query'], false);
+    const start = query.rawText.indexOf('stat');
+    const mapped = query.sourceMap.translate({
+      start: { line: 1, col: 4, offset: start },
+      end: { line: 1, col: 8, offset: start + 4 },
+    });
+    expect(mapped?.start).toEqual({ line: 3, col: 4 });
   });
 
   it('correctly advances past multiline string and continues parsing subsequent keys', () => {

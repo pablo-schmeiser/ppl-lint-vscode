@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { PplLinter } from '../../src/core/linter';
+import { applyCompatibilityExceptions, parseOpenSearchVersion } from '../../src/core/compatibility';
+import { parsePpl } from '../../src/core/parser/parser';
 import { findClosestMatch, levenshtein } from '../../src/core/rules/rule';
+import { DefaultRuleContext } from '../../src/core/rules/rule';
 
 describe('Levenshtein string matching helper', () => {
   it('computes edit distance accurately', () => {
@@ -18,7 +21,7 @@ describe('Levenshtein string matching helper', () => {
   });
 });
 
-describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
+describe('Diagnostic Rules Catalog', () => {
   const linter = new PplLinter();
 
   it('PPL001: reports syntax errors', () => {
@@ -48,14 +51,14 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(ppl001Ident?.severity).toBe('error');
   });
 
-  it('PPL002: reports missing source command and provides quick-fix suggestion', () => {
+  it('PPL002: reports missing source without inventing an index', () => {
     const query = 'where age > 30';
     const diagnostics = linter.lint(query);
 
     const ppl002 = diagnostics.find((d) => d.code === 'PPL002');
     expect(ppl002).toBeDefined();
     expect(ppl002?.severity).toBe('error');
-    expect(ppl002?.data?.suggestion).toBe('source=');
+    expect(ppl002?.data).toBeUndefined();
   });
 
   it('PPL003: reports unknown command and suggests closest match', () => {
@@ -89,6 +92,12 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(ppl005?.message).toContain("Unknown function 'unknow_func'");
   });
 
+  it('checks function calls inside IN lists', () => {
+    const diagnostics = linter.lint('source=logs | where status IN (known_value, unknow_func(status))');
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(true);
+    expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL001')).toBe(false);
+  });
+
   it('PPL006: warns when filter is placed after heavy operations (sort/stats/dedup)', () => {
     const query = 'source=logs | sort bytes | where status == 200';
     const diagnostics = linter.lint(query);
@@ -99,32 +108,54 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(ppl006?.message).toContain("placed after heavy command 'sort'");
   });
 
-  it('PPL007: warns on assignment operator in boolean condition with fix suggestion', () => {
-    const query = 'source=logs | where status = 200';
-    const diagnostics = linter.lint(query);
+  it('accepts both equality operators in conditions without warnings', () => {
+    const queries = [
+      'source=logs | where status = 200',
+      'source=logs | where status == 200',
+      'source=logs | where not (status = 200)',
+      'source=logs | where isnull(status = 200)',
+    ];
 
-    const ppl007 = diagnostics.find((d) => d.code === 'PPL007');
-    expect(ppl007).toBeDefined();
-    expect(ppl007?.severity).toBe('warning');
-    expect(ppl007?.data?.suggestion).toBe('==');
+    for (const query of queries) {
+      expect(linter.lint(query)).toEqual([]);
+    }
+  });
+
+  it('checks eval expressions and numeric head counts', () => {
+    const diagnostics = linter.lint('source=logs | eval score = unknow_func(bytes) | head 0');
+    expect(diagnostics.some((d) => d.code === 'PPL005')).toBe(true);
+    expect(diagnostics.some((d) => d.code === 'PPL004' && d.message.includes('head'))).toBe(true);
+    expect(diagnostics.some((d) => d.code === 'PPL008')).toBe(false);
+    expect(linter.lint('source=logs | eval score = abs(bytes) | head 10').some((d) => d.code === 'PPL008')).toBe(false);
+  });
+
+  it('rejects recognized raw stages as unverified, without calling them invalid PPL', () => {
+    const diagnostics = linter.lint("source=logs | grok message '%{IP:client_ip}'");
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PPL008', severity: 'error',
+      message: expect.stringContaining('Validation not implemented'),
+    }));
+    expect(linter.lint('source=logs | stat count()').some((d) => d.code === 'PPL008')).toBe(false);
+    expect(new PplLinter({ rules: { PPL008: 'off' } }).lint("source=logs | grok message '%{IP:client_ip}'")).toEqual([]);
+    expect(new PplLinter({ customCommands: ['trendline'] }).lint('source=logs | trendline count()').some((d) => d.code === 'PPL008')).toBe(true);
   });
 
   it('supports configurable severity levels and disabling rules (off)', () => {
     const customLinter = new PplLinter({
       rules: {
-        PPL007: 'off',
-        PPL006: 'info',
+        PPL006: 'off',
+        PPL005: 'info',
       },
     });
 
-    const query = 'source=logs | sort bytes | where status = 200';
+    const query = 'source=logs | sort bytes | where status = 200 | stats unknow_func(bytes)';
     const diagnostics = customLinter.lint(query);
 
-    expect(diagnostics.some((d) => d.code === 'PPL007')).toBe(false);
+    expect(diagnostics.some((d) => d.code === 'PPL006')).toBe(false);
 
-    const ppl006 = diagnostics.find((d) => d.code === 'PPL006');
-    expect(ppl006).toBeDefined();
-    expect(ppl006?.severity).toBe('info');
+    const ppl005 = diagnostics.find((d) => d.code === 'PPL005');
+    expect(ppl005).toBeDefined();
+    expect(ppl005?.severity).toBe('info');
   });
 
   it('PPL003: supports user-defined customCommands and typo matching', () => {
@@ -169,6 +200,44 @@ describe('Diagnostic Rules Catalog (PPL001 - PPL007)', () => {
     expect(typoPpl005).toBeDefined();
     expect(typoPpl005?.message).toContain("Did you mean 'custom_score'?");
     expect(typoPpl005?.data?.suggestion).toBe('custom_score');
+  });
+});
+
+describe('OpenSearch version selection', () => {
+  const query = 'source=logs | head 10';
+
+  it('uses 3.5 as the baseline and warns for newer unverified versions', () => {
+    expect(new PplLinter({ openSearchVersion: '3.5.0' }).lint(query)).toEqual([]);
+    const diagnostics = new PplLinter({ openSearchVersion: '3.10' }).lint(query);
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PPL009', severity: 'warning', message: expect.stringContaining('3.5 validation baseline'),
+    }));
+    expect(new PplLinter({ openSearchVersion: '3.4' }).lint(query)).toContainEqual(
+      expect.objectContaining({ code: 'PPL010', severity: 'error' })
+    );
+    expect(new PplLinter({ openSearchVersion: 'latest' }).lint(query)).toContainEqual(
+      expect.objectContaining({ code: 'PPL010', severity: 'error' })
+    );
+  });
+
+  it('applies a reproduced compatibility exception only to its affected releases', () => {
+    const ast = parsePpl(query);
+    const exception = {
+      id: 'test-compat',
+      firstAffected: parseOpenSearchVersion('3.5')!,
+      lastAffected: parseOpenSearchVersion('3.5.1')!,
+      reproducer: query,
+      reference: 'test fixture',
+      check: (_ast: typeof ast, context: DefaultRuleContext) => context.report({
+        code: 'TEST', message: 'Observed server rejection', severity: 'error', span: ast.source.span,
+      }),
+    };
+    const affected = new DefaultRuleContext();
+    applyCompatibilityExceptions(ast, affected, parseOpenSearchVersion('3.5.1')!, [exception]);
+    expect(affected.diagnostics).toHaveLength(1);
+    const unaffected = new DefaultRuleContext();
+    applyCompatibilityExceptions(ast, unaffected, parseOpenSearchVersion('3.6')!, [exception]);
+    expect(unaffected.diagnostics).toHaveLength(0);
   });
 });
 

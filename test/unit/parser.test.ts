@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PplLinter } from '../../src/core/linter';
 import { tokenize } from '../../src/core/lexer/tokenizer';
 import { parsePpl } from '../../src/core/parser/parser';
 import { TokenType } from '../../src/types';
@@ -113,6 +114,16 @@ describe('PPL Parser', () => {
     expect(statsStage.groupBy[0].name).toBe('state');
   });
 
+  it('parses stats count without a field argument', () => {
+    const ast = parsePpl('source=logs | stats count as connection_count by source_ip');
+
+    expect(ast.syntaxErrors).toHaveLength(0);
+    const statsStage = ast.stages[0] as any;
+    expect(statsStage.aggregations[0].functionName).toBe('count');
+    expect(statsStage.aggregations[0].alias).toBe('connection_count');
+    expect(statsStage.groupBy[0].name).toBe('source_ip');
+  });
+
   it('parses search source prefix and fields/sort stages', () => {
     const query = 'search source=logs | fields + host, status | sort - bytes';
     const ast = parsePpl(query);
@@ -144,6 +155,24 @@ describe('PPL Parser', () => {
     expect(whereStage.condition.operator.toUpperCase()).toBe('OR');
   });
 
+  it('parses a parenthesized IN list within a compound monitor condition', () => {
+    const query = "source=logs | where (event.action = 'path') AND (auditd.data.name IN ('/root/.bashrc', '/root/.bash_profile', '/root/.profile','/etc/.profile','/etc/shells','/etc/bashrc','/etc/csh.cshrc','/etc/csh.login') OR auditd.data.name like '/home/%/.bashrc' OR auditd.data.name like '/home/%/.bash_profile' OR auditd.data.name like '/home/%/.profile') OR labels.audit_key='T1156_bash_profile_and_bashrc'";
+    const ast = parsePpl(query);
+
+    expect(ast.syntaxErrors).toEqual([]);
+    expect(ast.stages).toHaveLength(1);
+    expect(ast.stages[0].type).toBe('WhereStage');
+    expect(new PplLinter().lint(query).filter((diagnostic) => diagnostic.code === 'PPL001')).toEqual([]);
+  });
+
+  it.each([
+    "source=logs | where status IN ()",
+    "source=logs | where status IN ('open',)",
+    "source=logs | where status IN ('open' 'closed')",
+  ])('rejects malformed IN lists: %s', (query) => {
+    expect(parsePpl(query).syntaxErrors.length).toBeGreaterThan(0);
+  });
+
   it('parses rename command stage', () => {
     const query = 'source=logs | rename old_field as new_field, user as account';
     const ast = parsePpl(query);
@@ -173,6 +202,13 @@ describe('PPL Parser', () => {
 
       expect(ast.source.type).toBe('ErrorNode');
       expect(ast.syntaxErrors.some((e) => e.message.includes('Missing source'))).toBe(true);
+      expect(ast.syntaxErrors).toHaveLength(1);
+      expect(ast.stages[0].type).toBe('WhereStage');
+    });
+
+    it('keeps following stages after a missing source', () => {
+      const ast = parsePpl('where status = 200 | stats count()');
+      expect(ast.stages.map((stage) => stage.type)).toEqual(['WhereStage', 'StatsStage']);
     });
 
     it('handles trailing pipe gracefully without crashing', () => {

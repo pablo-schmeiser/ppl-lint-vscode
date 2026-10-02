@@ -1,9 +1,12 @@
 import {
   BinaryExpressionNode,
+  EvalStageNode,
   ExpressionNode,
   FunctionCallNode,
+  InExpressionNode,
   LintRule,
   PipelineNode,
+  OptionStageNode,
   RuleContext,
   StatsStageNode,
   UnaryExpressionNode,
@@ -37,7 +40,7 @@ export const PPL005_UnknownFunction: LintRule = {
       if (expr.type === 'FunctionCall') {
         const func = expr as FunctionCallNode;
         const name = func.functionName.toLowerCase();
-        if (!knownSet.has(name)) {
+        if (!knownSet.has(name) && !/^(?:p|perc)\d+(?:\.\d+)?$/i.test(name)) {
           const suggestion = findClosestMatch(name, knownList, 3);
           const message = suggestion
             ? `Unknown function '${func.functionName}'. Did you mean '${suggestion}'?`
@@ -47,7 +50,14 @@ export const PPL005_UnknownFunction: LintRule = {
             code: 'PPL005',
             message,
             severity: 'warning',
-            span: func.span,
+            span: {
+              start: func.span.start,
+              end: {
+                line: func.span.start.line,
+                col: func.span.start.col + func.functionName.length,
+                offset: func.span.start.offset + func.functionName.length,
+              },
+            },
             data: suggestion
               ? {
                   suggestion,
@@ -71,6 +81,10 @@ export const PPL005_UnknownFunction: LintRule = {
         const bin = expr as BinaryExpressionNode;
         inspectExpression(bin.left);
         inspectExpression(bin.right);
+      } else if (expr.type === 'InExpression') {
+        const membership = expr as InExpressionNode;
+        inspectExpression(membership.left);
+        for (const value of membership.values) inspectExpression(value);
       } else if (expr.type === 'UnaryExpression') {
         const un = expr as UnaryExpressionNode;
         inspectExpression(un.argument);
@@ -84,6 +98,12 @@ export const PPL005_UnknownFunction: LintRule = {
         for (const agg of (stage as StatsStageNode).aggregations) {
           inspectExpression(agg);
         }
+      } else if (stage.type === 'EvalStage') {
+        for (const assignment of (stage as EvalStageNode).assignments) {
+          inspectExpression(assignment.value);
+        }
+      } else if (stage.type === 'OptionStage') {
+        inspectExpression((stage as OptionStageNode).aggregation);
       }
     }
   },

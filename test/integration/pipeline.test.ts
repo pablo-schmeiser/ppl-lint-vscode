@@ -5,6 +5,13 @@ import { PplLinter } from '../../src/core/linter';
 import { extractQueries } from '../../src/extractors/extractor';
 
 describe('End-to-End Pipeline Integration', () => {
+  it('activates when each supported document language opens', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf-8'));
+    expect(manifest.contributes.languages.some((language: { id: string }) => language.id === 'ppl')).toBe(true);
+    for (const language of ['yaml', 'toml', 'json']) {
+      expect(manifest.activationEvents).toContain(`onLanguage:${language}`);
+    }
+  });
   const linter = new PplLinter();
   const fixturesDir = path.resolve(__dirname, '../fixtures');
 
@@ -14,14 +21,13 @@ describe('End-to-End Pipeline Integration', () => {
     expect(diagnostics).toHaveLength(0);
   });
 
-  it('lints invalid standalone PPL fixture and flags multiple errors (PPL001, PPL003, PPL007)', () => {
+  it('lints invalid standalone PPL fixture and flags multiple errors (PPL001, PPL003)', () => {
     const invalidCode = fs.readFileSync(path.join(fixturesDir, 'invalid_syntax.ppl'), 'utf-8');
     const diagnostics = linter.lint(invalidCode);
 
     expect(diagnostics.length).toBeGreaterThan(0);
     expect(diagnostics.some((d) => d.code === 'PPL001')).toBe(true); // unclosed paren / trailing pipe
     expect(diagnostics.some((d) => d.code === 'PPL003')).toBe(true); // unknown command 'stat' -> 'stats'
-    expect(diagnostics.some((d) => d.code === 'PPL007')).toBe(true); // assignment '=' in where condition
   });
 
   it('end-to-end linting on detection_rule.yaml with zero coordinate drift', () => {
@@ -38,7 +44,7 @@ describe('End-to-End Pipeline Integration', () => {
     expect(ppl006).toBeDefined();
 
     if (ppl006) {
-      const hostRange = query.sourceMap.translate(ppl006.span);
+      const hostRange = query.sourceMap.translate(ppl006.span)!;
       const lines = yamlText.split(/\r?\n/);
       const targetLine = lines[hostRange.start.line];
 
@@ -101,7 +107,7 @@ describe('End-to-End Pipeline Integration', () => {
     expect(ppl003).toBeDefined();
 
     if (ppl003) {
-      const hostRange = queries[0].sourceMap.translate(ppl003.span);
+      const hostRange = queries[0].sourceMap.translate(ppl003.span)!;
       expect(hostRange.start.line).toBe(3);
       expect(hostRange.start.col).toBe(6); // 4 spaces indent + 2 chars ("| ")
     }

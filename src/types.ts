@@ -63,6 +63,8 @@ export enum TokenType {
   COMMA = 'COMMA',               // ,
   LPAREN = 'LPAREN',             // (
   RPAREN = 'RPAREN',             // )
+  LBRACKET = 'LBRACKET',         // [
+  RBRACKET = 'RBRACKET',         // ]
 
   // Literals & Identifiers
   IDENTIFIER = 'IDENTIFIER',         // accounts, status, etc.
@@ -98,8 +100,15 @@ export type ASTNodeType =
   | 'SortStage'
   | 'RenameStage'
   | 'HeadStage'
+  | 'DedupStage'
   | 'GenericStage'
+  | 'LookupStage'
+  | 'PatternStage'
+  | 'OptionStage'
+  | 'JoinStage'
   | 'BinaryExpression'
+  | 'CastExpression'
+  | 'InExpression'
   | 'UnaryExpression'
   | 'FunctionCall'
   | 'Identifier'
@@ -132,6 +141,19 @@ export interface BinaryExpressionNode extends ExpressionNode {
   right: ExpressionNode;
 }
 
+export interface InExpressionNode extends ExpressionNode {
+  type: 'InExpression';
+  left: ExpressionNode;
+  values: ExpressionNode[];
+}
+
+export interface CastExpressionNode extends ExpressionNode {
+  type: 'CastExpression';
+  expression: ExpressionNode;
+  targetType: string;
+  targetTypeSpan: Span;
+}
+
 export interface UnaryExpressionNode extends ExpressionNode {
   type: 'UnaryExpression';
   operator: string;
@@ -142,6 +164,8 @@ export interface FunctionCallNode extends ExpressionNode {
   type: 'FunctionCall';
   functionName: string;
   arguments: ExpressionNode[];
+  alias?: string;
+  aliasSpan?: Span;
 }
 
 export interface PipeStageNode extends BaseASTNode {
@@ -159,10 +183,27 @@ export interface WhereStageNode extends PipeStageNode {
   condition: ExpressionNode;
 }
 
+export interface EvalStageNode extends PipeStageNode {
+  type: 'EvalStage';
+  assignments: Array<{ field: IdentifierNode; value: ExpressionNode }>;
+}
+
+export interface HeadStageNode extends PipeStageNode {
+  type: 'HeadStage';
+  count?: number;
+}
+
+export interface DedupStageNode extends PipeStageNode {
+  type: 'DedupStage';
+  count?: number;
+  fields: IdentifierNode[];
+}
+
 export interface StatsStageNode extends PipeStageNode {
   type: 'StatsStage';
   aggregations: FunctionCallNode[];
   groupBy: IdentifierNode[];
+  groupByExpressions?: Array<{ expression: ExpressionNode; outputName?: string; outputSpan?: Span }>;
 }
 
 export interface FieldsStageNode extends PipeStageNode {
@@ -185,6 +226,40 @@ export interface RenameStageNode extends PipeStageNode {
 export interface GenericStageNode extends PipeStageNode {
   type: 'GenericStage';
   rawArguments: string;
+}
+
+export interface LookupStageNode extends PipeStageNode {
+  type: 'LookupStage';
+  index: IdentifierNode;
+  mappings: Array<{ lookup: IdentifierNode; source?: IdentifierNode }>;
+  outputMode?: 'replace' | 'append';
+  outputs: Array<{ input: IdentifierNode; output?: IdentifierNode }>;
+}
+
+export interface PatternStageNode extends PipeStageNode {
+  type: 'PatternStage';
+  field: IdentifierNode;
+  pattern: LiteralNode;
+  mode?: string;
+  options: Record<string, string | number>;
+}
+
+export interface OptionStageNode extends PipeStageNode {
+  type: 'OptionStage';
+  options: Record<string, LiteralNode | IdentifierNode>;
+  field?: IdentifierNode;
+  aggregation?: FunctionCallNode;
+  groupBy?: IdentifierNode;
+}
+
+export interface JoinStageNode extends PipeStageNode {
+  type: 'JoinStage';
+  joinType?: string;
+  options: Record<string, string | number | boolean>;
+  criteria?: ExpressionNode;
+  fields: IdentifierNode[];
+  dataset?: IdentifierNode | PipelineNode;
+  datasetAlias?: IdentifierNode;
 }
 
 export interface ErrorNode extends BaseASTNode {
@@ -235,6 +310,8 @@ export interface LintRule {
 }
 
 export interface PplLinterOptions {
+  openSearchVersion?: string;
+  includedIndexes?: string[];
   rules?: Record<string, DiagnosticSeverity>;
   customCommands?: string[];
   customFunctions?: string[];
@@ -258,7 +335,8 @@ export interface SourceCoordinateMap {
   /**
    * Translates a span in snippet-local coordinates to the host document coordinates.
    */
-  translate(snippetSpan: Span): HostRange;
+  translate(snippetSpan: Span): HostRange | undefined;
+  toSnippet(position: HostPosition, snippetText: string): HostPosition | undefined;
 }
 
 export interface ExtractedQuery {
@@ -292,6 +370,11 @@ export interface EmbeddedRuleConfig {
 
 export interface PplLinterConfig {
   enabled: boolean;
+  openSearchVersion: string;
+  indexTemplateGlob: string;
+  openSearchTemplateNames: string[];
+  openSearchMappingIndexes: string[];
+  includedIndexes: string[];
   standalone: StandaloneConfig;
   embedded: EmbeddedRuleConfig[];
   customCommands: string[];

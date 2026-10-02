@@ -1,10 +1,14 @@
 import {
   BinaryExpressionNode,
+  CastExpressionNode,
+  DedupStageNode,
   ErrorNode,
+  EvalStageNode,
   ExpressionNode,
   FieldsStageNode,
   FunctionCallNode,
   GenericStageNode,
+  HeadStageNode,
   IdentifierNode,
   LiteralNode,
   PipelineNode,
@@ -57,6 +61,25 @@ export function createWhereStageNode(
     condition,
     span,
   };
+}
+
+export function createEvalStageNode(
+  assignments: EvalStageNode['assignments'],
+  span: Span
+): EvalStageNode {
+  return { type: 'EvalStage', commandName: 'eval', assignments, span };
+}
+
+export function createHeadStageNode(count: number | undefined, span: Span): HeadStageNode {
+  return { type: 'HeadStage', commandName: 'head', count, span };
+}
+
+export function createDedupStageNode(
+  count: number | undefined,
+  fields: IdentifierNode[],
+  span: Span
+): DedupStageNode {
+  return { type: 'DedupStage', commandName: 'dedup', count, fields, span };
 }
 
 export function createStatsStageNode(
@@ -139,6 +162,15 @@ export function createBinaryExpressionNode(
     right,
     span,
   };
+}
+
+export function createCastExpressionNode(
+  expression: ExpressionNode,
+  targetType: string,
+  targetTypeSpan: Span,
+  span: Span
+): CastExpressionNode {
+  return { type: 'CastExpression', expression, targetType, targetTypeSpan, span };
 }
 
 export function createUnaryExpressionNode(

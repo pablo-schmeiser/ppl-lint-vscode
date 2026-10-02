@@ -49,19 +49,17 @@ jobs:
         if: always()
         shell: bash
         run: |
-          cat << 'EOF' >> "$GITHUB_STEP_SUMMARY"
-          ## 📊 CI Build & Test Summary
-
-          | Check | Target | Status |
-          | :--- | :--- | :---: |
-          EOF
-          echo "| **Platform Matrix** | \`${{ matrix.os }}\` / Node \`${{ matrix.node-version }}\` | 🖥️ |" >> "$GITHUB_STEP_SUMMARY"
-          cat << 'EOF' >> "$GITHUB_STEP_SUMMARY"
-          | **Dependency Audit** | \`pnpm audit\` | :white_check_mark: Passed |
-          | **TypeScript Typecheck** | \`pnpm run compile\` | :white_check_mark: Passed |
-          | **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |
-          | **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |
-          EOF
+          {
+            echo "## 📊 CI Build & Test Summary"
+            echo ""
+            echo "| Check | Target | Status |"
+            echo "| :--- | :--- | :---: |"
+            echo "| **Platform Matrix** | \`${{ matrix.os }}\` / Node \`${{ matrix.node-version }}\` | 🖥️ |"
+            echo "| **Dependency Audit** | \`pnpm audit\` | :white_check_mark: Passed |"
+            echo "| **TypeScript Typecheck** | \`pnpm run compile\` | :white_check_mark: Passed |"
+            echo "| **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |"
+            echo "| **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   pre-commit:
     name: Pre-commit

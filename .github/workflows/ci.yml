@@ -59,3 +59,12 @@ jobs:
           echo "| **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
           echo "| **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |" >> $GITHUB_STEP_SUMMARY
 
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - uses: pre-commit/action@v3.0.1

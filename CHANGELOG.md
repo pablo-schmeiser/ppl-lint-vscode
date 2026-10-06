@@ -10,12 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Extend AST-backed validation for OpenSearch 3.5 PPL commands and functions, including index-template-aware field resolution and type checks for expressions, casts, operators, and function arguments.
+- Extend PPL parsing and validation for OpenSearch 3.5 commands and functions, including command-argument checks, type checks for expressions, casts, operators, and function arguments, and syntax highlighting for new syntax.
+- Load local or live OpenSearch index templates and mappings for schema-aware field resolution, completion, and type checking. New `PPL011`-`PPL015` diagnostics report unresolved sources, unknown or untyped fields, conflicting field types, type mismatches, and risky implicit conversions.
+- Add `PPL008` for recognized command stages whose arguments are not yet covered by validation.
+- Add context-aware completion for commands, functions, sources, fields, and `join`/`lookup` syntax.
+- Add hover documentation for PPL commands and schema-backed fields, including inferred types for computed fields.
+- Add `pnpm run test:thorough` to run the dependency audit, typecheck, lint, tests, and production build.
 
-### Breaking Changes
+### Changed
 
-- Remove `PPL007` and its quick-fix. Both `=` and `==` are accepted as equality operators in conditions; remove any `pplLinter.rules.PPL007` override.
-- Configured OpenSearch versions below 3.5 are rejected with `PPL010`, which stops further linting. Select version 3.5 or later.
+- **Breaking:** Invalid OpenSearch versions and versions below 3.5 now produce `PPL010` and stop linting. Versions newer than 3.5 use the 3.5 validation baseline and produce a `PPL009` warning.
+
+### Removed
+
+- **Breaking:** Remove `PPL007` and its quick-fix. Both `=` and `==` are accepted as equality operators in conditions; remove any `pplLinter.rules.PPL007` override.
 
 ## [0.1.0] - 2026-09-11
 

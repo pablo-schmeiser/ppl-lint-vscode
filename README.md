@@ -34,7 +34,7 @@ TOML extraction currently handles section headers, dotted bare keys, and quoted 
 - 🗺️ **Exact-Only Embedded Locations**: Map diagnostics in supported YAML, TOML, and JSON string forms; skip locations that cannot be mapped exactly.
 - 🛡️ **Resilient Parser with Error Recovery**: Parsing recovers across `|` pipes so syntax errors in one stage never cascade down the pipeline.
 - 💡 **Interactive Quick-Fixes (CodeActions)**: One-click fixes for command and function typos (`Ctrl+.` or `Cmd+.`). A missing source requires you to supply an index name.
-- 📖 **Query Hovers**: Hover over PPL commands and functions for syntax and reference links, fields for verified types and origins, source and lookup indexes for mapping availability, keywords and operators for their meaning, and literal values for their input type. Unknown field types are marked as unverified.
+- 📖 **Command Documentation Hovers**: Hover over any PPL command (`where`, `stats`, `eval`, `dedup`, `sort`, `rename`, `grok`, etc.) to view syntax templates, descriptions, and official OpenSearch documentation links.
 - **Context-Aware Suggestions**: Suggest pipeline commands after `|`, aggregation functions after `stats`, and PPL functions while writing expressions. Function-argument fields are filtered by type, CAST targets are suggested, and string fields accepted through numeric coercion are marked as potentially unsafe. Lookup completion separates index fields from source fields and carries output fields into later stages; join completion covers options, datasets, aliases, criteria, subqueries, and known output fields.
 - **Mapped Field Hovers**: Hover over a field such as `event.type` to see its normalized PPL type and the index template that supplied it. Computed fields show their inferred PPL type and pipeline origin.
 - 🎨 **TextMate Syntax Highlighting**: Rich colorization for commands, functions, operators, comments, and identifiers.
@@ -234,6 +234,7 @@ source=app_logs
 - **VS Code Marketplace**: Search for `PPL Linter` and click **Install**.
 - **Open VSX Registry**: Available for VSCodium and Eclipse Theia.
 - **Manual `.vsix` Installation**:
+
   ```bash
   code --install-extension ppl-lint-vscode-0.1.0.vsix
   ```

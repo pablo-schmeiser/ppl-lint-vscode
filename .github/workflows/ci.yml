@@ -49,13 +49,24 @@ jobs:
         if: always()
         shell: bash
         run: |
-          echo "## 📊 CI Build & Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Target | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :--- | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Platform Matrix** | \`${{ matrix.os }}\` / Node \`${{ matrix.node-version }}\` | 🖥️ |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Dependency Audit** | \`pnpm audit\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
-          echo "| **TypeScript Typecheck** | \`pnpm run compile\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 📊 CI Build & Test Summary"
+            echo ""
+            echo "| Check | Target | Status |"
+            echo "| :--- | :--- | :---: |"
+            echo "| **Platform Matrix** | \`${{ matrix.os }}\` / Node \`${{ matrix.node-version }}\` | 🖥️ |"
+            echo "| **Dependency Audit** | \`pnpm audit\` | :white_check_mark: Passed |"
+            echo "| **TypeScript Typecheck** | \`pnpm run compile\` | :white_check_mark: Passed |"
+            echo "| **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |"
+            echo "| **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+      - uses: pre-commit/action@v3.0.1

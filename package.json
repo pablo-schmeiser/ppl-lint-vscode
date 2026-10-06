@@ -44,6 +44,7 @@
     "test:conformance": "vitest run --config vitest.conformance.config.mts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:thorough": "pnpm audit --audit-level high && pnpm compile && pnpm lint && pnpm test && pnpm build",
     "lint": "eslint src",
     "compile": "tsc -p ./ --noEmit",
     "package": "npx @vscode/vsce package --no-dependencies"
@@ -416,31 +417,56 @@
             },
             "PPL011": {
               "type": "string",
-              "enum": ["error", "warning", "info", "off"],
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
               "default": "error",
               "description": "PPL011: No configured index template matches the source"
             },
             "PPL012": {
               "type": "string",
-              "enum": ["error", "warning", "info", "off"],
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
               "default": "error",
               "description": "PPL012: Field is not declared or has no supported PPL type"
             },
             "PPL013": {
               "type": "string",
-              "enum": ["error", "warning", "info", "off"],
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
               "default": "error",
               "description": "PPL013: Field has conflicting mapped PPL types"
             },
             "PPL014": {
               "type": "string",
-              "enum": ["error", "warning", "info", "off"],
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
               "default": "error",
               "description": "PPL014: Function arguments, casts or operators have incompatible types"
             },
             "PPL015": {
               "type": "string",
-              "enum": ["error", "warning", "info", "off"],
+              "enum": [
+                "error",
+                "warning",
+                "info",
+                "off"
+              ],
               "default": "warning",
               "description": "PPL015: Implicit conversion may fail for some values"
             }
@@ -462,7 +488,7 @@
   "dependencies": {
     "jsonc-parser": "^3.3.1",
     "minimatch": "^10.2.6",
-    "smol-toml": "^1.8.0",
+    "smol-toml": "^1.9.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
@@ -471,7 +497,7 @@
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "@vitest/coverage-v8": "^5.0.0",
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "prettier": "^3.9.6",

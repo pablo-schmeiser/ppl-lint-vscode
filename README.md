@@ -51,7 +51,7 @@ The PPL TextMate grammar colors standalone `.ppl`, `.pplquery`, and `.query` fil
 | **`PPL002`** | `MissingSource` | `error` | Pipeline must begin with `source=<index>` or `search [source=]<index>`. Supply the index manually. |
 | **`PPL003`** | `UnknownCommand` | `error` | Unknown command name. Suggests closest match (e.g. `stat` -> `stats`). |
 | **`PPL004`** | `InvalidArguments` | `error` | Missing required arguments (e.g. `stats` without aggregation functions). |
-| **`PPL005`** | `UnknownFunction` | `warning` | Flags unknown functions in expressions and aggregations with similarity hints. |
+| **`PPL005`** | `UnknownFunction` | `error` | Flags unknown functions in expressions and aggregations with similarity hints. |
 | **`PPL006`** | `LateFilterWarning` | `warning` | Warns when `where` is placed after heavy operations (`sort`, `stats`, `dedup`) which causes performance degradation. |
 | **`PPL008`** | `UnverifiedStage` | `error` | A recognized command has arguments not yet represented in the syntax tree; this does not mean OpenSearch rejects the query. |
 | **`PPL009`** | `UnverifiedVersion` | `warning` | Selected version is newer than the 3.5 baseline. |
@@ -154,7 +154,7 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
     "PPL002": "error",
     "PPL003": "error",
     "PPL004": "error",
-    "PPL005": "warning",
+    "PPL005": "error",
     "PPL006": "warning",
     "PPL008": "error",
     "PPL009": "warning",
@@ -172,7 +172,59 @@ Customize the linter in your workspace or user `settings.json` under `pplLinter`
 }
 ```
 
-On first activation, the extension asks for an OpenSearch domain, username, and password, then fetches templates from `/_index_template`. `pplLinter.openSearchTemplateNames` selects template names or name patterns via `/_index_template/{template-name}`; an empty list fetches all templates. Each entry in `pplLinter.openSearchMappingIndexes` triggers a live request to `/{pattern}/_mapping`; for example, `mam_*` fetches mappings for matching indexes. The OpenSearch account needs permission to read the selected templates and mappings. It asks again every seven days. The password is used for requests and is never persisted. The extension caches the domain, username, last prompt time, selected templates, and mapping responses in VS Code extension state so restarts do not trigger extra prompts. Changing either selection list triggers a refresh. Run **PPL: Refresh OpenSearch Index Patterns** to refresh early. Remote connections require HTTPS; HTTP is allowed for localhost.
+On first activation, the extension uses configured `openSearchUrl` and `openSearchUsername` values, or asks for them when absent, then prompts for the password and fetches templates from `/_index_template`. `pplLinter.openSearchTemplateNames` selects template names or name patterns via `/_index_template/{template-name}`; an empty list fetches all templates. Each entry in `pplLinter.openSearchMappingIndexes` triggers a live request to `/{pattern}/_mapping`; for example, `mam_*` fetches mappings for matching indexes. The OpenSearch account needs permission to read the selected templates and mappings. It asks for the password again every seven days. The password is used for requests and is never persisted. The extension caches the domain, username, last prompt time, selected templates, and mapping responses in VS Code extension state so restarts do not trigger extra prompts. Changing either selection list triggers a refresh. Run **PPL: Refresh OpenSearch Index Patterns** to refresh early. Remote connections require HTTPS; HTTP is allowed for localhost.
+
+### Shared Config File
+
+The CLI and VS Code extension can share a JSONC file named `.ppl-lint.jsonc`. The CLI discovers it in the current directory; use `--config <path>` to choose another file. VS Code loads it from the first workspace folder by default; `pplLinter.configFile` can point to another relative or absolute path. Changes are watched and applied without restarting the extension.
+
+The `pplLinter` object accepts the VS Code lint and extraction settings, plus `openSearchUrl` and `openSearchUsername`. When supplied, the extension uses these values directly and still prompts for the password. The `cli` object holds command-line inputs and output options. Relative paths in the file are resolved from the config file's directory by the CLI.
+
+```jsonc
+{
+  "version": 1,
+  "pplLinter": {
+    "enabled": true,
+    "openSearchUrl": "https://opensearch.example.com",
+    "openSearchUsername": "reader",
+    "openSearchVersion": "3.5",
+    "indexTemplateGlob": "./templates/index-template-*.yaml",
+    "openSearchTemplateNames": ["auditd-*", "syslog-*"],
+    "openSearchMappingIndexes": ["mam_*", "users"],
+    "includedIndexes": ["auditd-*", "users"],
+    "standalone": {
+      "fileExtensions": [".ppl", ".pplquery", ".query"],
+      "languageIds": ["ppl"]
+    },
+    "embedded": [{
+      "id": "yaml-ppl-queries",
+      "filePattern": "**/*.{yaml,yml}",
+      "format": "yaml",
+      "keyPatterns": ["query", "ppl_query"],
+      "heuristicDetection": true
+    }],
+    "customCommands": [],
+    "customFunctions": [],
+    "additionalKeyPatterns": [],
+    "excludeKeyPatterns": [],
+    "overrideDefaultKeyPatterns": false,
+    "rules": { "PPL003": "warning" },
+    "lintOnType": true,
+    "debounceMs": 350
+  },
+  "cli": {
+    "inputs": ["queries/"],
+    "queries": [],
+    "corpusPaths": [],
+    "templatePaths": [],
+    "stdinFormat": "ppl",
+    "outputFormat": "text",
+    "saveOpenSearchCache": "./opensearch-cache"
+  }
+}
+```
+
+Built-in defaults are overridden by the shared file. Explicit VS Code settings override the file in the extension; command-line flags override it in the CLI. In the CLI, `PPL_OPENSEARCH_URL` and `PPL_OPENSEARCH_USERNAME` override file values unless their corresponding flags are given. Do not put passwords or tokens in this file: the CLI reads `PPL_OPENSEARCH_PASSWORD` from the environment, and the extension prompts for the password without saving it. `enabled`, `lintOnType`, and `debounceMs` apply only in VS Code; `cli` settings apply only to the CLI.
 
 `pplLinter.indexTemplateGlob` is empty by default and remains optional. Set a workspace-relative glob or an absolute glob for local templates in another repository. The extension watches those files and combines them with the fetched templates for index-pattern and alias matching, field/type checks, hover, and completion. A source that matches no configured template is an error. A field absent from all templates, or only allowed by a `dynamic: true` mapping, is an error when used. Fields from templates sharing an alias are combined; equivalent PPL types merge, while conflicting PPL types are reported at the field reference. The checker follows PPL implicit conversions and warns when string-to-number conversion may fail for runtime values.
 
@@ -185,6 +237,78 @@ The OpenSearch type mapping follows the documented PPL types. `keyword`, `text`,
 For embedded YAML, TOML, and JSON queries, schema diagnostics and completions require exact source mapping, just like existing diagnostics. Decoded or folded strings remain unmappable and are skipped.
 
 ---
+
+## Command-Line Interface
+
+### Quick Start
+
+Requires Node.js 18 or newer. From this checkout, build once with pnpm, then run the CLI:
+
+```bash
+pnpm build
+node dist/cli.js --help
+node dist/cli.js queries/ alerts/
+```
+
+Directories are scanned recursively for PPL, YAML, TOML, and JSON files. The CLI uses `.ppl-lint.jsonc` when present and otherwise uses built-in defaults; use `--corpus` for probe-result JSON with nested `results[].query` records.
+
+### Options
+
+| Parameter | Description | Default |
+| --- | --- | --- |
+| `--config <path>` | Load shared JSONC configuration. | `.ppl-lint.jsonc` in the current directory |
+| `file-or-directory ...` | Input paths. Scans `.ppl`, `.pplquery`, `.query`, `.yaml`, `.yml`, `.toml`, and `.json`; skips `.git`, `node_modules`, `dist`, `out`, and `coverage`. | None |
+| `--query <text>` | Lint a PPL query directly. Repeatable. | None |
+| `--corpus <path>` | Lint `results[].query` from a corpus JSON file or a directory of corpus files. Diagnostics include record IDs and families; `mismatches` entries are not processed twice. | None |
+| `-` | Read one input from stdin. Piped stdin is read automatically when no other input is given. | PPL input |
+| `--stdin-format <format>` | Stdin format: `ppl`, `yaml`, `toml`, or `json`. | `ppl` |
+| `--template <path>` | Local YAML/JSON index-template file or directory. Repeatable. | None |
+| `--opensearch-url <url>` or `PPL_OPENSEARCH_URL` | OpenSearch URL. Remote URLs must use HTTPS; HTTP is allowed for localhost. | None |
+| `--opensearch-username <name>` or `PPL_OPENSEARCH_USERNAME` | Basic-auth username. | None |
+| `PPL_OPENSEARCH_PASSWORD` | Basic-auth password. Set in the environment; it is not accepted as a CLI argument or saved by the CLI. | None |
+| `--opensearch-template <pattern>` | Remote index-template name or wildcard. Repeatable. | All templates |
+| `--mapping-index <pattern>` | Fetch live mappings for an index or wildcard. Repeatable. | None |
+| `--save-opensearch-cache <directory>` | Save fetched templates and mappings as a reusable JSON cache. With no query or file input, runs fetch-only. | None |
+| `--opensearch-version <version>` | OpenSearch version to lint against. | `3.5` |
+| `--include-index <pattern>` | Limit schema checks to matching source indexes. Repeatable. | All indexes |
+| `--custom-command <name>` | Add a recognized PPL command. Repeatable. | None |
+| `--custom-function <name>` | Add a recognized PPL function. Repeatable. | None |
+| `--format <value>` | Diagnostic output format: `text` or `json`. | `text` |
+| `-h`, `--help` | Show CLI help. | N/A |
+
+### Examples
+
+```bash
+# Lint files and directories
+node dist/cli.js queries/ alerts/
+
+# Lint a query or piped YAML
+node dist/cli.js --query 'source=logs | where status >= 500'
+cat alert.yaml | node dist/cli.js --stdin-format yaml
+
+# Lint the checked-in probe corpus or use local templates
+node dist/cli.js --corpus test/fixtures/ppl-corpus-probe-results.json --format json
+node dist/cli.js --template ./opensearch-templates/ queries/
+```
+
+For OpenSearch, set the URL and username, then enter the password at the hidden prompt:
+
+```bash
+export PPL_OPENSEARCH_URL='https://opensearch.example.com'
+export PPL_OPENSEARCH_USERNAME='reader'
+printf 'OpenSearch password: '
+read -s PPL_OPENSEARCH_PASSWORD
+printf '\n'
+export PPL_OPENSEARCH_PASSWORD
+node dist/cli.js --opensearch-template 'logs-*' --mapping-index 'logs-*' \
+  --save-opensearch-cache ./opensearch-cache
+node dist/cli.js --template ./opensearch-cache queries/
+unset PPL_OPENSEARCH_PASSWORD
+```
+
+The cache is stored as `ppl-lint-opensearch-cache.json` inside the selected directory. It contains the fetched template response and each mapping response with its selector; pass that directory to `--template` to lint offline. Omitting query and file inputs from the save command makes it a fetch-only preparation step.
+
+Text output prints one line per diagnostic and a summary, including on clean runs. JSON output is only an array of diagnostics; `[]` means no findings, and locations are 1-based. Corpus mode lints locally; it does not call OpenSearch or compare stored verdicts. Exit status: `0` means no errors, `1` means lint errors, and `2` means invalid CLI input or an input/OpenSearch failure.
 
 ## Embedded Examples
 
@@ -234,7 +358,6 @@ source=app_logs
 - **VS Code Marketplace**: Search for `PPL Linter` and click **Install**.
 - **Open VSX Registry**: Available for VSCodium and Eclipse Theia.
 - **Manual `.vsix` Installation**:
-
   ```bash
   code --install-extension ppl-lint-vscode-0.1.0.vsix
   ```

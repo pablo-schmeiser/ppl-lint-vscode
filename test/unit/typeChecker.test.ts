@@ -86,6 +86,131 @@ describe('schema-aware PPL type checking', () => {
     expect(linter.lint(valid, templates).some((diagnostic) => diagnostic.code === 'PPL014')).toBe(false);
   });
 
+  it('matches OpenSearch accepted eval sum, empty concat, and array constructor calls', () => {
+    const query = "source=auditd-reader | eval total = sum(event.enabled), coerced = sum('not_numeric'), joined = concat(), empty = array(), size = array_length(array(1, 2))";
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter((diagnostic) => diagnostic.severity === 'error');
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects invalid array and eval-sum arguments', () => {
+    const query = 'source=auditd-reader | eval invalid_size = array_length(event.sequence), invalid_sum = sum(array(1))';
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ code }) => code === 'PPL014');
+    expect(errors).toHaveLength(2);
+  });
+
+  it('only permits eval wrappers inside aggregate function arguments', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const query of [
+      'source=auditd-reader | stats eval(event.type) as result',
+      'source=auditd-reader | eventstats eval(event.type) as result',
+      'source=auditd-reader | streamstats eval(event.type) as result',
+    ]) {
+      expect(linter.lint(query, templates).some((diagnostic) => diagnostic.severity === 'error'), query).toBe(true);
+    }
+    expect(linter.lint('source=auditd-reader | stats count(eval(event.enabled))', templates)
+      .filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
+    for (const command of ['eventstats', 'streamstats']) {
+      expect(linter.lint(`source=auditd-reader | ${command} count(eval(event.enabled))`, templates)
+        .filter(({ code }) => code === 'PPL014')).toHaveLength(1);
+    }
+  });
+
+  it('requires literal TAKE sizes and restricts TAKE and VALUES contexts', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = 'source=auditd-reader | stats take(event.type), take(event.type, 5), values(event.type), distinct_count_approx(event.type)';
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+
+    for (const query of [
+      'source=auditd-reader | stats take(event.type, event.sequence)',
+      'source=auditd-reader | eventstats take(event.type)',
+      'source=auditd-reader | streamstats take(event.type)',
+      'source=auditd-reader | eventstats values(event.type)',
+      'source=auditd-reader | streamstats values(event.type)',
+      'source=auditd-reader | eventstats distinct_count_approx(event.type)',
+      'source=auditd-reader | streamstats distinct_count_approx(event.type)',
+    ]) {
+      expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'), query).toHaveLength(1);
+    }
+  });
+
+  it('restricts SPAN to compatible group-by expressions', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = 'source=auditd-reader | stats count() by span(event.sequence, 10)';
+    const invalidContext = 'source=auditd-reader | stats span(event.sequence, 10) as result';
+    const invalidField = 'source=auditd-reader | stats count() by span(event.type, 10)';
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(invalidContext, templates).some(({ code }) => code === 'PPL014')).toBe(true);
+    expect(linter.lint(invalidField, templates).some(({ code }) => code === 'PPL014')).toBe(true);
+  });
+
+  it('requires LIKE case sensitivity to be literal and RIGHT lengths to be integers', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = "source=auditd-reader | eval matched = like(event.type, 'login%', true), suffix = right(event.type, 5)";
+    const invalid = "source=auditd-reader | eval matched = like(event.type, 'login%', event.enabled), suffix = right(event.type, event.sequence)";
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
+  });
+
+  it('accepts compatible IF branches and rejects incompatible IF and IFNULL branches', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = "source=auditd-reader | eval numeric_choice = if(event.enabled, event.sequence, 1.5), text_choice = ifnull(event.type, 'unknown')";
+    const invalid = 'source=auditd-reader | eval mixed_choice = if(event.enabled, event.type, event.sequence), mixed_fallback = ifnull(event.type, event.sequence)';
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
+  });
+
+  it('restricts relevance-search functions to WHERE while accepting pushed-down use', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = "source=auditd-reader | where match_phrase(event.type, 'login') OR regexp_match(event.type, 'log.*')";
+    const invalid = "source=auditd-reader | eval phrase = match_phrase(event.type, 'login'), matched = regexp_match(event.type, 'log.*')";
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
+  });
+
+  it('accepts string predicates and rejects non-string ISBLANK and ISEMPTY arguments', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = 'source=auditd-reader | eval blank = isblank(event.type), empty = isempty(event.type)';
+    const invalid = 'source=auditd-reader | eval blank = isblank(event.sequence), empty = isempty(event.sequence)';
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
+  });
+
+  it('type-checks aliased timechart aggregations', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = 'source=auditd-reader | timechart span=1d count() as total';
+    const invalid = 'source=auditd-reader | timechart span=1d sum(event.enabled) as total';
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(1);
+  });
+
+  it('rejects known OpenSearch function argument type mismatches', () => {
+    const invalid = 'source=auditd-reader | eval round_value = round(event.sequence, event.enabled), substring_value = substr(event.type, event.enabled), next_date = date_add(now(), event.sequence), next_date_alias = adddate(now(), event.type), added = timestampadd(DAY, event.type, now())';
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(invalid, templates)
+      .filter((diagnostic) => diagnostic.code === 'PPL014');
+    expect(errors).toHaveLength(6);
+  });
+
+  it('requires percentile arguments to be constant fractions in the range zero to one', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    const valid = 'source=auditd-reader | stats percentile(event.sequence, 0.9), percentile_approx(event.sequence, 0.5)';
+    const dynamic = 'source=auditd-reader | stats percentile(event.sequence, event.sequence)';
+    const tooLarge = 'source=auditd-reader | stats percentile(event.sequence, 90)';
+    const tooSmall = 'source=auditd-reader | stats percentile_approx(event.sequence, 1.1)';
+
+    expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(linter.lint(dynamic, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(1);
+    expect(linter.lint(tooLarge, templates).find(({ code }) => code === 'PPL014')?.message).toContain('range [0, 1]');
+    expect(linter.lint(tooSmall, templates).find(({ code }) => code === 'PPL014')?.message).toContain('range [0, 1]');
+  });
+
   it('accepts uppercase NOT applied to boolean LIKE predicates', () => {
     const query = "source=auditd-reader | where NOT (execve_command LIKE '%--list%' OR execve_command LIKE '%-L%' OR execve_command LIKE '%--version%')";
     const ast = parsePpl(query);
@@ -96,7 +221,7 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('validates documented statistical aggregation signatures', () => {
-    const valid = 'source=auditd-reader | stats var_pop(event.sequence), var_samp(event.sequence), stddev_pop(event.sequence), stddev_samp(event.sequence), percentile(event.sequence, 90), percentile_approx(event.sequence, 90), median(event.sequence), list(event.type), take(event.type, 5)';
+    const valid = 'source=auditd-reader | stats var_pop(event.sequence), var_samp(event.sequence), stddev_pop(event.sequence), stddev_samp(event.sequence), percentile(event.sequence, 0.9), percentile_approx(event.sequence, 0.9), median(event.sequence), list(event.type), take(event.type, 5)';
     const invalid = 'source=auditd-reader | stats var_pop(event.enabled), percentile(event.sequence), take(event.sequence, event.enabled)';
     const contextMismatch = 'source=auditd-reader | where var_pop(event.sequence) > 0';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
@@ -124,6 +249,12 @@ describe('schema-aware PPL type checking', () => {
     expect(validDiagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(false);
     expect(validDiagnostics.some((diagnostic) => diagnostic.code === 'PPL014')).toBe(false);
     expect(invalidDiagnostics).toHaveLength(4);
+  });
+
+  it('accepts the comma POSITION form verified by OpenSearch', () => {
+    const query = 'source=auditd-reader | eval located = position(event.type, event.type)';
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
   });
 
   it('validates date signatures and recognizes parser-produced INTERVAL arguments', () => {

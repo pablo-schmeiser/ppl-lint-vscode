@@ -35,10 +35,15 @@ jobs:
       - name: Package VSIX
         run: pnpm exec vsce package --out ppl-lint-vscode.vsix
 
+      - name: Package CLI
+        run: pnpm pack
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: ppl-lint-vscode.vsix
+          files: |
+            ppl-lint-vscode.vsix
+            ppl-lint-vscode-*.tgz
           draft: false
           prerelease: false
           generate_release_notes: true

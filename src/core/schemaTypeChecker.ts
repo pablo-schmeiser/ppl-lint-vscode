@@ -371,7 +371,7 @@ function inferExpression(
         !areCompatibleTypes(checkedArgs[1].type, checkedArgs[2].type)) {
       mismatch(`Function 'if' branches have incompatible types '${checkedArgs[1].type}' and '${checkedArgs[2].type}'.`, call.span, diagnostics);
     }
-    if (signature.returnType === 'common' && checkedArgs.length > 1 &&
+    if (signature.returnType === 'common' && functionName !== 'coalesce' && checkedArgs.length > 1 &&
         checkedArgs.slice(1).some((argument) => !areCompatibleTypes(checkedArgs[0].type, argument.type))) {
       mismatch(`Function '${call.functionName}' arguments have incompatible result types.`, call.span, diagnostics);
     }

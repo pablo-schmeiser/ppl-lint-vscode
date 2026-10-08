@@ -164,6 +164,14 @@ describe('schema-aware PPL type checking', () => {
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
   });
 
+  it('coerces mixed numeric and string coalesce arguments to a string result', () => {
+    const query = 'source=auditd-reader | eval coerced = coalesce(event.sequence, event.type) | eval normalized = lower(coerced)';
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter((diagnostic) => diagnostic.severity === 'error');
+
+    expect(errors).toEqual([]);
+  });
+
   it('restricts relevance-search functions to WHERE while accepting pushed-down use', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const valid = "source=auditd-reader | where match_phrase(event.type, 'login') OR regexp_match(event.type, 'log.*')";

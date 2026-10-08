@@ -42,6 +42,9 @@ jobs:
       - name: Run test suite
         run: pnpm test -- --reporter=default --reporter=github-actions
 
+      - name: Run integration tests
+        run: pnpm run test:integration --reporter=default --reporter=github-actions
+
       - name: Build extension bundle
         run: pnpm run build
 
@@ -58,6 +61,7 @@ jobs:
             echo "| **Dependency Audit** | \`pnpm audit\` | :white_check_mark: Passed |"
             echo "| **TypeScript Typecheck** | \`pnpm run compile\` | :white_check_mark: Passed |"
             echo "| **Vitest Unit Suite** | \`pnpm test\` | :white_check_mark: Passed |"
+            echo "| **Vitest Integration Suite** | \`pnpm run test:integration\` | :white_check_mark: Passed |"
             echo "| **Extension Bundle** | \`pnpm run build\` (\`dist/extension.js\`) | :package: Built |"
           } >> "$GITHUB_STEP_SUMMARY"
 

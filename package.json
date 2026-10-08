@@ -11,8 +11,17 @@
     "url": "https://github.com/pablo-schmeiser/ppl-lint-vscode.git"
   },
   "main": "./dist/extension.js",
+  "bin": {
+    "ppl-lint": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "syntaxes",
+    "language-configuration.json"
+  ],
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "node": ">=18"
   },
   "categories": [
     "Linters",
@@ -39,6 +48,9 @@
   ],
   "scripts": {
     "build": "node esbuild.config.mjs --production",
+    "cli": "node dist/cli.js",
+    "prepack": "pnpm build",
+    "vscode:prepublish": "pnpm build",
     "watch": "node esbuild.config.mjs --watch",
     "test": "vitest run",
     "test:conformance": "vitest run --config vitest.conformance.config.mts",
@@ -97,19 +109,28 @@
     "configuration": {
       "title": "PPL Linter",
       "properties": {
+        "pplLinter.configFile": {
+          "type": "string",
+          "description": "Shared PPL configuration file, relative to the first workspace folder or an absolute local path. Set empty to disable shared-file loading."
+        },
         "pplLinter.enabled": {
           "type": "boolean",
-          "default": true,
           "description": "Enable or disable PPL linting globally."
         },
         "pplLinter.openSearchVersion": {
           "type": "string",
-          "default": "3.5",
           "description": "Target OpenSearch version (major.minor or major.minor.patch, minimum 3.5). Newer unverified versions use the 3.5 baseline with a warning."
+        },
+        "pplLinter.openSearchUrl": {
+          "type": "string",
+          "description": "OpenSearch domain URL. Do not embed credentials."
+        },
+        "pplLinter.openSearchUsername": {
+          "type": "string",
+          "description": "OpenSearch username. Passwords are never read from configuration files."
         },
         "pplLinter.indexTemplateGlob": {
           "type": "string",
-          "default": "",
           "description": "Glob for local OpenSearch index-template YAML files, relative to the workspace or absolute for external folders. Remote templates are fetched from OpenSearch separately."
         },
         "pplLinter.openSearchTemplateNames": {
@@ -117,7 +138,6 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Optional list of OpenSearch index-template names or wildcard patterns to fetch. Empty fetches all templates."
         },
         "pplLinter.openSearchMappingIndexes": {
@@ -125,7 +145,6 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Index names, aliases, or * and ? patterns whose live mappings should be fetched from the configured OpenSearch domain, for example mam_*."
         },
         "pplLinter.includedIndexes": {
@@ -133,33 +152,17 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Optional allowlist of PPL source index names, aliases, or patterns using * and ?. Empty includes all sources."
         },
         "pplLinter.standalone": {
           "type": "object",
           "description": "Settings for standalone PPL files.",
-          "default": {
-            "fileExtensions": [
-              ".ppl",
-              ".pplquery",
-              ".query"
-            ],
-            "languageIds": [
-              "ppl"
-            ]
-          },
           "properties": {
             "fileExtensions": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "default": [
-                ".ppl",
-                ".pplquery",
-                ".query"
-              ],
               "description": "File extensions treated directly as standalone PPL."
             },
             "languageIds": {
@@ -167,9 +170,6 @@
               "items": {
                 "type": "string"
               },
-              "default": [
-                "ppl"
-              ],
               "description": "VSCode language identifiers to lint as PPL."
             }
           }
@@ -177,47 +177,6 @@
         "pplLinter.embedded": {
           "type": "array",
           "description": "Rules for extracting and linting PPL queries inside structured documents.",
-          "default": [
-            {
-              "id": "yaml-detection-rules",
-              "filePattern": "**/*.{yaml,yml}",
-              "format": "yaml",
-              "keyPatterns": [
-                "query",
-                "ppl",
-                "ppl_query",
-                "rule.query",
-                "detection.condition",
-                "*.query",
-                "detectors.*.query",
-                "alerts.*.condition.ppl"
-              ],
-              "heuristicDetection": true
-            },
-            {
-              "id": "toml-agent-configs",
-              "filePattern": "**/*.toml",
-              "format": "toml",
-              "keyPatterns": [
-                "query",
-                "ppl",
-                "*.query",
-                "transforms.*.query"
-              ],
-              "heuristicDetection": true
-            },
-            {
-              "id": "json-dashboards",
-              "filePattern": "**/*.json",
-              "format": "json",
-              "keyPatterns": [
-                "ppl",
-                "query",
-                "ppl_query"
-              ],
-              "heuristicDetection": false
-            }
-          ],
           "items": {
             "type": "object",
             "required": [
@@ -253,7 +212,6 @@
               },
               "heuristicDetection": {
                 "type": "boolean",
-                "default": true,
                 "description": "If true, inspects string values matching regex /^\\s*(source|search)\\s*=/i even if keys are not explicitly listed."
               }
             }
@@ -264,7 +222,6 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Additional user-defined known PPL pipe commands to recognize, preventing PPL003 unknown command errors."
         },
         "pplLinter.customFunctions": {
@@ -272,7 +229,6 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Additional user-defined function names to recognize in expressions, preventing PPL005 unknown function warnings."
         },
         "pplLinter.additionalKeyPatterns": {
@@ -280,7 +236,6 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Additional key patterns (dot-delimited, wildcard `*`, or `!pattern` to exclude) to extract PPL queries from structured documents (YAML, TOML, JSON) without replacing default embedded rules."
         },
         "pplLinter.excludeKeyPatterns": {
@@ -288,33 +243,15 @@
           "items": {
             "type": "string"
           },
-          "default": [],
           "description": "Key patterns to exclude from PPL query extraction, removing them from the active pattern list."
         },
         "pplLinter.overrideDefaultKeyPatterns": {
           "type": "boolean",
-          "default": false,
           "description": "If true, ignores built-in default extractor key patterns and uses only user-specified key patterns."
         },
         "pplLinter.rules": {
           "type": "object",
           "description": "Configurable severity levels for specific linter rules ('error', 'warning', 'info', 'off').",
-          "default": {
-            "PPL001": "error",
-            "PPL002": "error",
-            "PPL003": "error",
-            "PPL004": "error",
-            "PPL005": "warning",
-            "PPL006": "warning",
-            "PPL008": "error",
-            "PPL009": "warning",
-            "PPL010": "error",
-            "PPL011": "error",
-            "PPL012": "error",
-            "PPL013": "error",
-            "PPL014": "error",
-            "PPL015": "warning"
-          },
           "properties": {
             "PPL001": {
               "type": "string",
@@ -324,7 +261,6 @@
                 "info",
                 "off"
               ],
-              "default": "error",
               "description": "PPL001: Syntax Error"
             },
             "PPL002": {
@@ -335,7 +271,6 @@
                 "info",
                 "off"
               ],
-              "default": "error",
               "description": "PPL002: Missing Source Stage"
             },
             "PPL003": {
@@ -346,7 +281,6 @@
                 "info",
                 "off"
               ],
-              "default": "error",
               "description": "PPL003: Unknown Command"
             },
             "PPL004": {
@@ -357,7 +291,6 @@
                 "info",
                 "off"
               ],
-              "default": "error",
               "description": "PPL004: Invalid Arguments"
             },
             "PPL005": {
@@ -368,7 +301,6 @@
                 "info",
                 "off"
               ],
-              "default": "warning",
               "description": "PPL005: Unknown Function"
             },
             "PPL006": {
@@ -379,7 +311,6 @@
                 "info",
                 "off"
               ],
-              "default": "warning",
               "description": "PPL006: Late Filter Performance Warning"
             },
             "PPL008": {
@@ -390,7 +321,6 @@
                 "info",
                 "off"
               ],
-              "default": "error",
               "description": "PPL008: Validation not implemented for raw-argument stages"
             },
             "PPL009": {
@@ -401,7 +331,6 @@
                 "info",
                 "off"
               ],
-              "default": "warning",
               "description": "PPL009: Selected OpenSearch version has not been verified"
             },
             "PPL010": {
@@ -412,7 +341,6 @@
                 "info",
                 "off"
               ],
-              "default": "error",
               "description": "PPL010: Selected OpenSearch version is invalid or older than 3.5"
             },
             "PPL011": {
@@ -474,12 +402,10 @@
         },
         "pplLinter.lintOnType": {
           "type": "boolean",
-          "default": true,
           "description": "Lint on typing with debouncing. If false, lints only on save."
         },
         "pplLinter.debounceMs": {
           "type": "integer",
-          "default": 350,
           "description": "Debounce delay in milliseconds for linting on document modification."
         }
       }

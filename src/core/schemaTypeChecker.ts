@@ -9,6 +9,7 @@ import {
   FunctionCallNode,
   IdentifierNode,
   InExpressionNode,
+  LiteralNode,
   LookupStageNode,
   OptionStageNode,
   PatternStageNode,
@@ -31,7 +32,7 @@ import { IndexTemplate, isSourceIncluded, KnownField, resolveSource } from './in
 import { parsePpl } from './parser/parser';
 import { normalizeOpenSearchTypes, normalizePplTypeName, PplType } from './pplTypes';
 
-type ExpressionType = PplType | 'null' | 'unknown';
+type ExpressionType = PplType | 'null' | 'unknown' | 'interval';
 
 interface InferredExpression {
   type: ExpressionType;
@@ -125,7 +126,7 @@ function inferField(identifier: IdentifierNode, fields: Map<string, KnownField>,
 }
 
 function isNumeric(type: ExpressionType): type is PplType {
-  return type !== 'null' && type !== 'unknown' && NUMERIC_TYPES.has(type);
+  return type !== 'null' && type !== 'unknown' && type !== 'interval' && NUMERIC_TYPES.has(type);
 }
 
 function widerNumeric(left: PplType, right: PplType): PplType {
@@ -159,11 +160,24 @@ function coerceStringToNumber(
 
 function accepts(constraint: TypeConstraint, type: ExpressionType): boolean {
   if (type === 'unknown' || type === 'null' || constraint === 'any') return true;
-  if (constraint === 'numeric') return NUMERIC_TYPES.has(type);
-  if (constraint === 'temporal') return TEMPORAL_TYPES.has(type) || type === 'string';
+  if (constraint === 'scalar') return type !== 'array' && type !== 'interval';
+  if (constraint === 'interval') return type === 'interval';
+  if (constraint === 'numericOrInterval') return isNumeric(type) || type === 'interval';
+  if (constraint === 'numericOrTemporal') return isNumeric(type) || TEMPORAL_TYPES.has(type as PplType);
+  if (constraint === 'numeric') return isNumeric(type);
+  if (constraint === 'temporal') return (type !== 'interval' && TEMPORAL_TYPES.has(type)) || type === 'string';
   if (constraint === 'stringLike') return type === 'string' || type === 'ip';
   if (constraint === 'array') return type === 'array';
   return type === constraint;
+}
+
+function isBooleanLiteral(expression: ExpressionNode): boolean {
+  return expression.type === 'Literal' && typeof (expression as LiteralNode).value === 'boolean';
+}
+
+function isIntegerLiteral(expression: ExpressionNode): boolean {
+  return expression.type === 'Literal' && typeof (expression as LiteralNode).value === 'number' &&
+    Number.isInteger((expression as LiteralNode).value);
 }
 
 function checkArguments(
@@ -193,29 +207,41 @@ function checkArguments(
   }
   args.forEach((argument, index) => {
     const constraint = argumentConstraint(signature, index);
-    if (!constraint || accepts(constraint, argument.type)) return;
-    if (constraint === 'numeric' && argument.type === 'string') {
-      if (argument.isConstant && !isNumericString(argument.constantValue)) {
+    let argumentValid = true;
+    if (constraint && !accepts(constraint, argument.type) && constraint === 'numeric' && argument.type === 'string') {
+      if (signature.strictNumericArguments?.includes(index)) {
+        mismatch(`Function '${call.functionName}' argument ${index + 1} requires numeric, got string.`, call.arguments[index].span, diagnostics);
+        argumentValid = false;
+      } else if (argument.isConstant && !isNumericString(argument.constantValue)) {
         mismatch(`String literal cannot be converted to a number for '${call.functionName}'.`, call.arguments[index].span, diagnostics);
-        return;
-      }
-      if (!argument.isConstant) {
+        argumentValid = false;
+      } else if (!argument.isConstant) {
         diagnostics.push({
           code: 'PPL015',
           message: `Function '${call.functionName}' converts a string argument to numeric at runtime; nonnumeric values may fail.`,
           severity: 'warning',
           span: call.arguments[index].span,
         });
+        checkedArgs[index] = { ...argument, type: 'double' };
+      } else {
+        checkedArgs[index] = { ...argument, type: 'double' };
       }
-      checkedArgs[index] = { ...argument, type: 'double' };
-      return;
+    } else if (constraint && !accepts(constraint, argument.type)) {
+      mismatch(`Function '${call.functionName}' argument ${index + 1} requires ${constraint}, got ${argument.type}.`, call.arguments[index].span, diagnostics);
+      argumentValid = false;
     }
-    diagnostics.push({
-      code: 'PPL014',
-      message: `Function '${call.functionName}' argument ${index + 1} requires ${constraint}, got ${argument.type}.`,
-      severity: 'error',
-      span: call.arguments[index].span,
-    });
+
+    const expression = call.arguments[index];
+    if (argumentValid && signature.booleanLiteralArguments?.includes(index) && !isBooleanLiteral(expression)) {
+      mismatch(`Function '${call.functionName}' argument ${index + 1} must be a boolean literal.`, expression.span, diagnostics);
+    }
+    if (argumentValid && signature.integerLiteralArguments?.includes(index) && !isIntegerLiteral(expression)) {
+      mismatch(`Function '${call.functionName}' argument ${index + 1} must be an integer literal.`, expression.span, diagnostics);
+    }
+    if (argumentValid && signature.fractionArguments?.includes(index) &&
+        (!argument.isConstant || typeof argument.constantValue !== 'number' || argument.constantValue < 0 || argument.constantValue > 1)) {
+      mismatch(`Function '${call.functionName}' argument ${index + 1} must be a constant fraction in the range [0, 1].`, expression.span, diagnostics);
+    }
   });
   return checkedArgs;
 }
@@ -227,6 +253,11 @@ function inferCommonType(args: readonly InferredExpression[]): ExpressionType {
     return types.slice(1).reduce<PplType>((previous, current) => widerNumeric(previous, current), types[0] as PplType);
   }
   return types.includes('string') ? 'string' : 'unknown';
+}
+
+function areCompatibleTypes(left: ExpressionType, right: ExpressionType): boolean {
+  return left === 'unknown' || right === 'unknown' || left === 'null' || right === 'null' ||
+    left === right || (isNumeric(left) && isNumeric(right));
 }
 
 function inferReturnType(signature: FunctionSignature, args: InferredExpression[], context: string): ExpressionType {
@@ -261,7 +292,9 @@ function inferExpression(
   expression: ExpressionNode,
   fields: Map<string, KnownField>,
   diagnostics: CoreDiagnostic[],
-  context: string
+  context: string,
+  insideAggregate: boolean = false,
+  insideGroupBy: boolean = false
 ): InferredExpression {
   if (expression.type === 'Literal') {
     const literal = expression as import('../types').LiteralNode;
@@ -274,7 +307,7 @@ function inferExpression(
 
   if (expression.type === 'CastExpression') {
     const cast = expression as CastExpressionNode;
-    const source = inferExpression(cast.expression, fields, diagnostics, context);
+    const source = inferExpression(cast.expression, fields, diagnostics, context, insideAggregate, insideGroupBy);
     const target = normalizePplTypeName(cast.targetType);
     if (!target) {
       mismatch(`CAST target '${cast.targetType}' is not a supported PPL type.`, cast.targetTypeSpan, diagnostics);
@@ -295,6 +328,16 @@ function inferExpression(
   if (expression.type === 'FunctionCall') {
     const call = expression as FunctionCallNode;
     const signature = getFunctionSignature(call.functionName, context);
+    const functionName = call.functionName.toLowerCase();
+    const aggregateContext = ['stats', 'eventstats', 'streamstats', 'timechart'].includes(context);
+    const isAggregateCall = aggregateContext && signature?.contexts?.includes(context) === true &&
+      functionName !== 'eval' && functionName !== 'span';
+    if (functionName === 'eval' && aggregateContext && !insideAggregate && signature) {
+      mismatch(`Function 'eval' is only valid inside an aggregate function in '${context}' context.`, call.span, diagnostics);
+    }
+    if (functionName === 'span' && !insideGroupBy && signature) {
+      mismatch("Function 'span' is only valid in a stats group-by expression.", call.span, diagnostics);
+    }
     const args = call.arguments.map((argument, index) => {
       if (
         index === 1 &&
@@ -302,7 +345,7 @@ function inferExpression(
         argument.type === 'Identifier' &&
         (argument as IdentifierNode).name.toLowerCase() === 'interval'
       ) {
-        return { type: 'string' as const, isConstant: true, constantValue: 'interval' };
+        return { type: 'interval' as const, isConstant: true, constantValue: 'interval' };
       }
       if (
         index === 1 &&
@@ -315,7 +358,7 @@ function inferExpression(
       if (signature?.constantArguments?.includes(index) && argument.type === 'Identifier') {
         return { type: 'string' as const, isConstant: true, constantValue: (argument as IdentifierNode).name };
       }
-      return inferExpression(argument, fields, diagnostics, context);
+      return inferExpression(argument, fields, diagnostics, context, insideAggregate || isAggregateCall, insideGroupBy);
     });
     if (!signature) {
       if (FUNCTION_SIGNATURES.has(call.functionName.toLowerCase())) {
@@ -324,13 +367,21 @@ function inferExpression(
       return { type: 'unknown', isConstant: false };
     }
     const checkedArgs = checkArguments(call, signature, args, diagnostics);
+    if (signature.returnType === 'if' && checkedArgs.length >= 3 &&
+        !areCompatibleTypes(checkedArgs[1].type, checkedArgs[2].type)) {
+      mismatch(`Function 'if' branches have incompatible types '${checkedArgs[1].type}' and '${checkedArgs[2].type}'.`, call.span, diagnostics);
+    }
+    if (signature.returnType === 'common' && functionName !== 'coalesce' && checkedArgs.length > 1 &&
+        checkedArgs.slice(1).some((argument) => !areCompatibleTypes(checkedArgs[0].type, argument.type))) {
+      mismatch(`Function '${call.functionName}' arguments have incompatible result types.`, call.span, diagnostics);
+    }
     return { type: inferReturnType(signature, checkedArgs, context), isConstant: false };
   }
 
   if (expression.type === 'BinaryExpression') {
     const binary = expression as BinaryExpressionNode;
-    const left = inferExpression(binary.left, fields, diagnostics, context);
-    const right = inferExpression(binary.right, fields, diagnostics, context);
+    const left = inferExpression(binary.left, fields, diagnostics, context, insideAggregate, insideGroupBy);
+    const right = inferExpression(binary.right, fields, diagnostics, context, insideAggregate, insideGroupBy);
     const operator = binary.operator.toUpperCase();
     if (operator === 'AND' || operator === 'OR') {
       for (const [value, operand] of [[left, binary.left], [right, binary.right]] as const) {
@@ -367,9 +418,9 @@ function inferExpression(
 
   if (expression.type === 'InExpression') {
     const membership = expression as InExpressionNode;
-    const left = inferExpression(membership.left, fields, diagnostics, context);
+    const left = inferExpression(membership.left, fields, diagnostics, context, insideAggregate, insideGroupBy);
     for (const value of membership.values) {
-      const right = inferExpression(value, fields, diagnostics, context);
+      const right = inferExpression(value, fields, diagnostics, context, insideAggregate, insideGroupBy);
       const compatible = left.type === 'unknown' || right.type === 'unknown' || left.type === 'null' || right.type === 'null' ||
         left.type === right.type || (isNumeric(left.type) && isNumeric(right.type));
       if (!compatible) mismatch(`IN compares incompatible types '${left.type}' and '${right.type}'.`, value.span, diagnostics);
@@ -379,7 +430,7 @@ function inferExpression(
 
   if (expression.type === 'UnaryExpression') {
     const unary = expression as UnaryExpressionNode;
-    const argument = inferExpression(unary.argument, fields, diagnostics, context);
+    const argument = inferExpression(unary.argument, fields, diagnostics, context, insideAggregate, insideGroupBy);
     if (unary.operator.toLowerCase() === 'not' && argument.type !== 'boolean' && argument.type !== 'unknown') {
       mismatch(`Operator '${unary.operator}' requires a boolean operand, got '${argument.type}'.`, unary.argument.span, diagnostics);
     } else if (unary.operator.toLowerCase() !== 'not' && !isNumeric(argument.type) && argument.type !== 'unknown') {
@@ -391,7 +442,7 @@ function inferExpression(
 }
 
 function knownField(type: ExpressionType, templates: string[] = []): KnownField {
-  return { types: [], pplTypes: type === 'unknown' || type === 'null' ? [] : [type], templates };
+  return { types: [], pplTypes: type === 'unknown' || type === 'null' || type === 'interval' ? [] : [type], templates };
 }
 
 function mergeKnownFields(left: KnownField, right: KnownField): KnownField {
@@ -459,7 +510,7 @@ function applyStage(
     }
     if (stats.groupByExpressions) {
       for (const group of stats.groupByExpressions) {
-        const groupType = inferExpression(group.expression, fields, diagnostics, context).type;
+        const groupType = inferExpression(group.expression, fields, diagnostics, context, false, true).type;
         if (group.outputName) output.set(group.outputName, knownField(groupType));
       }
     } else {

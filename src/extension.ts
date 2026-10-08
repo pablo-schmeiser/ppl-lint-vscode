@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import { IndexTemplate } from './core/indexTemplates';
 import { PplCodeActionProvider } from './vscode/codeActions';
-import { getPplConfig } from './vscode/config';
+import { getPplConfig, getSharedConfigUri, loadSharedConfig } from './vscode/config';
 import { PplDiagnosticManager } from './vscode/diagnostics';
 import { PplHoverProvider } from './vscode/hover';
 import { PplCompletionProvider } from './vscode/completion';
@@ -46,10 +47,36 @@ function createOpenSearchTemplatePrompts(output: vscode.OutputChannel): OpenSear
   };
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   let remoteTemplates: IndexTemplate[] = [];
   const openSearchOutput = vscode.window.createOutputChannel('PPL Linter: OpenSearch');
   context.subscriptions.push(openSearchOutput);
+  const sharedConfigResult = await loadSharedConfig();
+  if (sharedConfigResult.error) openSearchOutput.appendLine(`[Config] ${sharedConfigResult.error}`);
+
+  let configWatcher: vscode.FileSystemWatcher | undefined;
+  let configWatcherSubscriptions: vscode.Disposable[] = [];
+  const disposeConfigWatcher = (): void => {
+    configWatcher?.dispose();
+    configWatcher = undefined;
+    for (const subscription of configWatcherSubscriptions) subscription.dispose();
+    configWatcherSubscriptions = [];
+  };
+  const installConfigWatcher = (): void => {
+    disposeConfigWatcher();
+    const uri = getSharedConfigUri();
+    if (!uri) return;
+    const parent = uri.with({ path: path.posix.dirname(uri.path) });
+    configWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(parent, path.posix.basename(uri.path))
+    );
+    const reloadFromFile = (): void => { void applyConfiguration(true); };
+    configWatcherSubscriptions = [
+      configWatcher.onDidCreate(reloadFromFile),
+      configWatcher.onDidChange(reloadFromFile),
+      configWatcher.onDidDelete(reloadFromFile),
+    ];
+  };
   const onTemplatesChanged = (): void => diagnosticManager?.reLintOpenDocuments();
   indexTemplateCatalog = new IndexTemplateCatalog(getPplConfig().indexTemplateGlob, onTemplatesChanged);
   indexTemplateCatalog.setRemoteTemplates(remoteTemplates);
@@ -86,6 +113,38 @@ export function activate(context: vscode.ExtensionContext): void {
   diagnosticManager = new PplDiagnosticManager(updateStatusBar, () => indexTemplateCatalog);
   context.subscriptions.push(diagnosticManager);
 
+  let configReloadGeneration = 0;
+  const applyConfiguration = async (reloadFile: boolean): Promise<void> => {
+    const generation = ++configReloadGeneration;
+    if (reloadFile) {
+      const result = await loadSharedConfig();
+      if (result.error) openSearchOutput.appendLine(`[Config] ${result.error}`);
+      installConfigWatcher();
+      if (generation !== configReloadGeneration) return;
+    }
+
+    const config = getPplConfig();
+    diagnosticManager?.reloadConfig();
+    indexTemplateCatalog?.dispose();
+    indexTemplateCatalog = new IndexTemplateCatalog(config.indexTemplateGlob, onTemplatesChanged);
+    indexTemplateCatalog.setRemoteTemplates(remoteTemplates);
+    context.subscriptions.push(indexTemplateCatalog);
+    const connectionDefaultsChanged = openSearchTemplateSource?.setConnectionDefaults(
+      config.openSearchUrl,
+      config.openSearchUsername
+    ) ?? false;
+    const selectionsRefreshed = openSearchTemplateSource
+      ? await openSearchTemplateSource.setSelections(
+        config.openSearchTemplateNames,
+        config.openSearchMappingIndexes
+      )
+      : false;
+    if (connectionDefaultsChanged && !selectionsRefreshed) void openSearchTemplateSource?.refresh(true);
+    updateStatusBar(0);
+  };
+
+  installConfigWatcher();
+
   // 3. Document Listeners
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
@@ -106,16 +165,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('pplLinter')) {
-        diagnosticManager?.reloadConfig();
-        indexTemplateCatalog?.dispose();
-        indexTemplateCatalog = new IndexTemplateCatalog(getPplConfig().indexTemplateGlob, onTemplatesChanged);
-        indexTemplateCatalog.setRemoteTemplates(remoteTemplates);
-        context.subscriptions.push(indexTemplateCatalog);
-        void openSearchTemplateSource?.setTemplateNames(getPplConfig().openSearchTemplateNames);
-        void openSearchTemplateSource?.setMappingIndexPatterns(getPplConfig().openSearchMappingIndexes);
-        updateStatusBar(0);
+        void applyConfiguration(event.affectsConfiguration('pplLinter.configFile'));
       }
-    })
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => { void applyConfiguration(true); })
   );
 
   openSearchTemplateSource = new OpenSearchTemplateSource(
@@ -127,9 +180,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
   context.subscriptions.push(openSearchTemplateSource);
-  void openSearchTemplateSource.setTemplateNames(getPplConfig().openSearchTemplateNames);
-  void openSearchTemplateSource.setMappingIndexPatterns(getPplConfig().openSearchMappingIndexes);
+  const initialConfig = getPplConfig();
+  openSearchTemplateSource.setConnectionDefaults(initialConfig.openSearchUrl, initialConfig.openSearchUsername);
+  void openSearchTemplateSource.setSelections(
+    initialConfig.openSearchTemplateNames,
+    initialConfig.openSearchMappingIndexes
+  );
   void openSearchTemplateSource.initialize();
+  context.subscriptions.push({ dispose: disposeConfigWatcher });
 
   // 5. Code Actions & Hover Providers
   const supportedLanguages = ['ppl', 'yaml', 'toml', 'json'];
@@ -166,7 +224,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('pplLinter.toggleEnabled', async () => {
       const config = vscode.workspace.getConfiguration('pplLinter');
-      const current = config.get<boolean>('enabled', true);
+      const current = getPplConfig().enabled;
       await config.update('enabled', !current, vscode.ConfigurationTarget.Global);
       vscode.window.showInformationMessage(
         `PPL Linter ${!current ? 'enabled' : 'disabled'}.`

@@ -761,8 +761,14 @@ export class PplParser {
     }
     if (command === 'timechart') {
       const expr = this.parsePrimary();
-      if (expr.type === 'FunctionCall') aggregation = expr as FunctionCallNode;
-      else this.recordError('timechart requires one aggregation function', expr.span);
+      if (expr.type === 'FunctionCall') {
+        aggregation = expr as FunctionCallNode;
+        if (this.match(TokenType.AS)) {
+          const alias = this.parseFieldIdentifier('Expected aggregation alias after as');
+          aggregation.alias = alias?.name;
+          aggregation.aliasSpan = alias?.span;
+        }
+      } else this.recordError('timechart requires one aggregation function', expr.span);
       if (this.match(TokenType.BY)) groupBy = this.parseFieldIdentifier('Expected timechart group field') ?? undefined;
       if (this.match(TokenType.COMMA)) this.recordError('timechart supports only one aggregation function', this.previous().span);
     } else if (!field) {
@@ -1131,11 +1137,11 @@ export class PplParser {
   private parseFunctionArguments(calleeToken: Token): ExpressionNode[] {
     if (calleeToken.value.toLowerCase() === 'position') {
       const substring = this.parseComparison();
-      if (!this.match(TokenType.IN)) {
-        this.recordError("Expected 'IN' in POSITION call", this.peek().span);
-        return [substring];
+      if (this.match(TokenType.IN) || this.match(TokenType.COMMA)) {
+        return [substring, this.parseExpression()];
       }
-      return [substring, this.parseExpression()];
+      this.recordError("Expected 'IN' or ',' in POSITION call", this.peek().span);
+      return [substring];
     }
     const args: ExpressionNode[] = [];
     if (!this.check(TokenType.RPAREN)) {

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add context-aware completion for commands, functions, sources, fields, and `join`/`lookup` syntax.
 - Add hover documentation for PPL commands and schema-backed fields, including inferred types for computed fields.
 - Add `pnpm run test:thorough` to run the dependency audit, typecheck, lint, tests, and production build.
+- Added a CLI
 
 ### Changed
 

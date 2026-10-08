@@ -370,6 +370,8 @@ export interface EmbeddedRuleConfig {
 
 export interface PplLinterConfig {
   enabled: boolean;
+  openSearchUrl?: string;
+  openSearchUsername?: string;
   openSearchVersion: string;
   indexTemplateGlob: string;
   openSearchTemplateNames: string[];

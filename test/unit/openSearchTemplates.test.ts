@@ -60,6 +60,52 @@ function namedTemplateResponse(name: string, pattern: string) {
 }
 
 describe('OpenSearch template source', () => {
+  it('uses configured connection values and refreshes cache from a different domain', async () => {
+    const storage = new MemoryStorage();
+    storage.value = {
+      domain: 'https://old.example.test',
+      username: 'old-reader',
+      lastPromptAt: 999_000,
+      response: templateResponse,
+      templateNames: [],
+      mappingIndexes: [],
+      mappingResponses: {},
+    };
+    const promptCalls: string[] = [];
+    const requests: Array<{ url: string; authorization?: string }> = [];
+    const fetcher: OpenSearchFetcher = async (url, options) => {
+      requests.push({ url, authorization: options.headers.Authorization });
+      return { ok: true, status: 200, json: async () => templateResponse };
+    };
+    const source = new OpenSearchTemplateSource(
+      storage,
+      {
+        domain: async () => { promptCalls.push('domain'); return undefined; },
+        username: async () => { promptCalls.push('username'); return undefined; },
+        password: async () => 'config-test-password',
+        error: (message) => { throw new Error(message); },
+        log: () => undefined,
+      },
+      () => undefined,
+      fetcher,
+      () => 1_000_000
+    );
+
+    try {
+      source.setConnectionDefaults('https://configured.example.test', 'configured-reader');
+      await source.initialize();
+
+      expect(promptCalls).toEqual([]);
+      expect(requests).toEqual([{
+        url: 'https://configured.example.test/_index_template',
+        authorization: `Basic ${Buffer.from('configured-reader:config-test-password').toString('base64')}`,
+      }]);
+      expect(JSON.stringify(storage.value)).not.toContain('config-test-password');
+    } finally {
+      source.dispose();
+    }
+  });
+
   it('fetches native templates with Basic auth and caches no password', async () => {
     const storage = new MemoryStorage();
     const requests: Array<{ url: string; authorization: string | undefined; redirect: string }> = [];
@@ -179,6 +225,42 @@ describe('OpenSearch template source', () => {
         'https://search.example.test/proxy/_index_template/security-*',
       ]);
       expect(source.templates.map((template) => template.name)).toEqual(['security-rules']);
+    } finally {
+      source.dispose();
+    }
+  });
+
+  it('refreshes template and mapping selections together', async () => {
+    const storage = new MemoryStorage();
+    const requests: string[] = [];
+    const fetcher: OpenSearchFetcher = async (url) => {
+      requests.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => url.endsWith('/_mapping')
+          ? { mam_users: { mappings: { properties: { id: { type: 'keyword' } } } } }
+          : url.endsWith('/_index_template/mam_*')
+            ? namedTemplateResponse('mam_users', 'mam_users-*')
+            : templateResponse,
+      };
+    };
+    const source = new OpenSearchTemplateSource(storage, prompts(), () => undefined, fetcher, () => 1_000_000);
+
+    try {
+      await source.initialize();
+      requests.length = 0;
+
+      await source.setSelections(['mam_*'], ['mam_*']);
+
+      expect(requests).toEqual([
+        'https://search.example.test/proxy/_index_template/mam_*',
+        'https://search.example.test/proxy/mam_*/_mapping',
+      ]);
+      expect(source.templates.map((template) => template.name)).toEqual([
+        'mam_users',
+        'mapping:mam_*:mam_users',
+      ]);
     } finally {
       source.dispose();
     }

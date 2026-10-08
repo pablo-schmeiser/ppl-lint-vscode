@@ -1,6 +1,6 @@
 import { PplType } from '../pplTypes';
 
-export type TypeConstraint = 'any' | 'numeric' | 'string' | 'stringLike' | 'boolean' | 'temporal' | 'array';
+export type TypeConstraint = 'any' | 'numeric' | 'string' | 'stringLike' | 'boolean' | 'temporal' | 'array' | 'scalar' | 'interval' | 'numericOrInterval' | 'numericOrTemporal';
 export type ReturnTypeRule = PplType | 'sameAsFirst' | 'common' | 'if' | 'case' | 'widerNumeric' | 'fromUnixTime' | 'earliestLatest' | 'addDate' | 'unknown';
 
 export interface FunctionSignature {
@@ -12,6 +12,10 @@ export interface FunctionSignature {
   returnType: ReturnTypeRule;
   contexts?: readonly string[];
   constantArguments?: readonly number[];
+  booleanLiteralArguments?: readonly number[];
+  integerLiteralArguments?: readonly number[];
+  fractionArguments?: readonly number[];
+  strictNumericArguments?: readonly number[];
   special?: 'case';
 }
 
@@ -41,22 +45,22 @@ const signatures: FunctionSignature[] = [
   { name: 'substring', minArgs: 2, maxArgs: 3, arguments: ['string', 'numeric', 'numeric'], returnType: 'string' },
   { name: 'replace', minArgs: 3, maxArgs: 3, arguments: ['string', 'string', 'string'], returnType: 'string' },
   { name: 'regexp_replace', minArgs: 3, maxArgs: 3, arguments: ['string', 'string', 'string'], returnType: 'string' },
-  { name: 'like', minArgs: 2, maxArgs: 3, arguments: ['string', 'string', 'boolean'], returnType: 'boolean' },
+  { name: 'like', minArgs: 2, maxArgs: 3, arguments: ['string', 'string', 'boolean'], returnType: 'boolean', booleanLiteralArguments: [2] },
   { name: 'ilike', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean' },
   { name: 'position', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'int' },
   { name: 'isnull', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'boolean' },
   { name: 'isnotnull', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'boolean' },
   { name: 'ispresent', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'boolean' },
-  { name: 'isblank', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'boolean' },
-  { name: 'isempty', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'boolean' },
+  { name: 'isblank', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'boolean' },
+  { name: 'isempty', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'boolean' },
   { name: 'if', minArgs: 3, maxArgs: 3, arguments: ['boolean', 'any', 'any'], returnType: 'if' },
   { name: 'case', minArgs: 2, arguments: ['boolean', 'any'], variadic: 'any', returnType: 'case', special: 'case' },
   { name: 'coalesce', minArgs: 1, arguments: ['any'], variadic: 'any', returnType: 'common' },
   { name: 'ifnull', minArgs: 2, maxArgs: 2, arguments: ['any', 'any'], returnType: 'common' },
-  { name: 'eval', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
+  { name: 'eval', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'sameAsFirst', contexts: ['stats'] },
   { name: 'count', minArgs: 0, maxArgs: 1, arguments: ['any'], returnType: 'bigint', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
   { name: 'sum', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
-  { name: 'sum', minArgs: 1, arguments: ['numeric'], variadic: 'numeric', returnType: 'widerNumeric', contexts: ['eval'] },
+  { name: 'sum', minArgs: 1, arguments: ['scalar'], variadic: 'scalar', returnType: 'widerNumeric', contexts: ['eval'] },
   { name: 'avg', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'double', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
   { name: 'avg', minArgs: 1, arguments: ['numeric'], variadic: 'numeric', returnType: 'double', contexts: ['eval'] },
   { name: 'max', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
@@ -68,15 +72,15 @@ const signatures: FunctionSignature[] = [
   { name: 'stddev_pop', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'double', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
   { name: 'stddev_samp', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'double', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
   { name: 'distinct_count', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'bigint', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
-  { name: 'distinct_count_approx', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'bigint', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
+  { name: 'distinct_count_approx', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'bigint', contexts: ['stats'] },
   { name: 'dc', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'bigint', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
-  { name: 'percentile', minArgs: 2, maxArgs: 2, arguments: ['numeric', 'numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
-  { name: 'percentile_approx', minArgs: 2, maxArgs: 2, arguments: ['numeric', 'numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
+  { name: 'percentile', minArgs: 2, maxArgs: 2, arguments: ['numeric', 'numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'], fractionArguments: [1] },
+  { name: 'percentile_approx', minArgs: 2, maxArgs: 2, arguments: ['numeric', 'numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'], fractionArguments: [1] },
   { name: 'median', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
   { name: 'list', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'array', contexts: ['stats', 'eventstats', 'streamstats'] },
-  { name: 'take', minArgs: 1, maxArgs: 2, arguments: ['any', 'numeric'], returnType: 'array', contexts: ['stats', 'eventstats', 'streamstats'] },
-  { name: 'regexp_match', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean' },
-  { name: 'match_phrase', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean' },
+  { name: 'take', minArgs: 1, maxArgs: 2, arguments: ['any', 'numeric'], returnType: 'array', contexts: ['stats'], integerLiteralArguments: [1] },
+  { name: 'regexp_match', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean', contexts: ['where'] },
+  { name: 'match_phrase', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean', contexts: ['where'] },
   { name: 'md5', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'string' },
   { name: 'sha1', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'string' },
   { name: 'date_format', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'string'], returnType: 'string' },
@@ -93,20 +97,21 @@ const signatures: FunctionSignature[] = [
   { name: 'date', minArgs: 1, maxArgs: 1, arguments: ['temporal'], returnType: 'date' },
   { name: 'timestamp', minArgs: 1, maxArgs: 2, arguments: ['temporal', 'temporal'], returnType: 'timestamp' },
   { name: 'extract', minArgs: 2, maxArgs: 2, arguments: ['any', 'temporal'], returnType: 'bigint', constantArguments: [0] },
-  { name: 'date_add', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'any'], returnType: 'timestamp' },
-  { name: 'date_sub', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'any'], returnType: 'timestamp' },
-  { name: 'adddate', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'any'], returnType: 'addDate' },
+  { name: 'date_add', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'interval'], returnType: 'timestamp' },
+  { name: 'date_sub', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'interval'], returnType: 'timestamp' },
+  { name: 'adddate', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'numericOrInterval'], returnType: 'addDate' },
+  { name: 'array', minArgs: 0, arguments: [], variadic: 'any', returnType: 'array' },
   { name: 'array_length', minArgs: 1, maxArgs: 1, arguments: ['array'], returnType: 'int' },
-  { name: 'span', minArgs: 2, maxArgs: 2, arguments: ['any', 'any'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats'] },
-  { name: 'timestampadd', minArgs: 3, maxArgs: 3, arguments: ['any', 'numeric', 'temporal'], returnType: 'timestamp', constantArguments: [0] },
+  { name: 'span', minArgs: 2, maxArgs: 2, arguments: ['numericOrTemporal', 'any'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats'] },
+  { name: 'timestampadd', minArgs: 3, maxArgs: 3, arguments: ['any', 'numeric', 'temporal'], returnType: 'timestamp', constantArguments: [0], strictNumericArguments: [1] },
   { name: 'timestampdiff', minArgs: 3, maxArgs: 3, arguments: ['any', 'temporal', 'temporal'], returnType: 'bigint', constantArguments: [0] },
-  { name: 'concat', minArgs: 1, maxArgs: 9, arguments: ['string'], variadic: 'string', returnType: 'string' },
+  { name: 'concat', minArgs: 0, maxArgs: 9, arguments: ['string'], variadic: 'string', returnType: 'string' },
   { name: 'cidrmatch', minArgs: 2, maxArgs: 2, arguments: ['stringLike', 'stringLike'], returnType: 'boolean' },
-  { name: 'right', minArgs: 2, maxArgs: 2, arguments: ['string', 'numeric'], returnType: 'string' },
+  { name: 'right', minArgs: 2, maxArgs: 2, arguments: ['string', 'numeric'], returnType: 'string', integerLiteralArguments: [1] },
   { name: 'unix_timestamp', minArgs: 0, maxArgs: 1, arguments: ['temporal'], returnType: 'double' },
   { name: 'from_unixtime', minArgs: 1, maxArgs: 2, arguments: ['numeric', 'string'], returnType: 'fromUnixTime' },
   { name: 'nullif', minArgs: 2, maxArgs: 2, arguments: ['any', 'any'], returnType: 'sameAsFirst' },
-  { name: 'values', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'array', contexts: ['stats', 'eventstats', 'streamstats'] },
+  { name: 'values', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'array', contexts: ['stats'] },
   { name: 'earliest', minArgs: 2, maxArgs: 2, arguments: ['string', 'temporal'], returnType: 'boolean', contexts: ['eval', 'where'] },
   { name: 'earliest', minArgs: 1, maxArgs: 2, arguments: ['any', 'temporal'], returnType: 'earliestLatest', contexts: ['stats', 'eventstats', 'streamstats'] },
   { name: 'latest', minArgs: 2, maxArgs: 2, arguments: ['string', 'temporal'], returnType: 'boolean', contexts: ['eval', 'where'] },

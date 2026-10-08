@@ -1,104 +1,70 @@
 import * as vscode from 'vscode';
-import { DiagnosticSeverity, EmbeddedRuleConfig, PplLinterConfig, StandaloneConfig } from '../types';
+import {
+  DEFAULT_PPL_CONFIG_FILE,
+  mergePplLinterConfig,
+  parsePplConfigFile,
+  PPL_LINTER_CONFIG_KEYS,
+  PplLinterConfigOverrides,
+} from '../projectConfig';
+import { PplLinterConfig } from '../types';
+import * as path from 'node:path';
+
+let sharedConfig: PplLinterConfigOverrides = {};
+
+export function getSharedConfigUri(): vscode.Uri | undefined {
+  const config = vscode.workspace.getConfiguration('pplLinter');
+  const configFile = config.get<string>('configFile', DEFAULT_PPL_CONFIG_FILE).trim();
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!configFile || !workspaceFolder) return undefined;
+  return path.isAbsolute(configFile)
+    ? vscode.Uri.file(configFile)
+    : vscode.Uri.joinPath(workspaceFolder.uri, ...configFile.split(/[\\/]/));
+}
+
+export async function loadSharedConfig(): Promise<{ uri?: vscode.Uri; error?: string }> {
+  const uri = getSharedConfigUri();
+  sharedConfig = {};
+  if (!uri) return {};
+
+  try {
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    sharedConfig = parsePplConfigFile(new TextDecoder().decode(bytes), uri.fsPath || uri.toString()).pplLinter;
+    const templateGlob = sharedConfig.indexTemplateGlob;
+    if (templateGlob && !path.isAbsolute(templateGlob)) {
+      if (uri.scheme === 'file') {
+        sharedConfig = { ...sharedConfig, indexTemplateGlob: path.resolve(path.dirname(uri.fsPath), templateGlob) };
+      } else {
+        const resolvedGlob = path.posix.resolve(path.posix.dirname(uri.path), templateGlob);
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (workspaceFolder?.scheme === uri.scheme && workspaceFolder.authority === uri.authority) {
+          const relativeGlob = path.posix.relative(workspaceFolder.path, resolvedGlob);
+          sharedConfig = {
+            ...sharedConfig,
+            indexTemplateGlob: relativeGlob === '..' || relativeGlob.startsWith('../')
+              ? resolvedGlob
+              : relativeGlob,
+          };
+        } else {
+          sharedConfig = { ...sharedConfig, indexTemplateGlob: resolvedGlob };
+        }
+      }
+    }
+    return { uri };
+  } catch (error) {
+    const code = (error as vscode.FileSystemError | undefined)?.code;
+    if (code === 'FileNotFound') return { uri };
+    const message = error instanceof Error ? error.message : String(error);
+    return { uri, error: message };
+  }
+}
 
 export function getPplConfig(): PplLinterConfig {
   const config = vscode.workspace.getConfiguration('pplLinter');
-
-  const enabled = config.get<boolean>('enabled', true);
-  const openSearchVersion = config.get<string>('openSearchVersion', '3.5');
-  const indexTemplateGlob = config.get<string>('indexTemplateGlob', '');
-  const openSearchTemplateNames = config.get<string[]>('openSearchTemplateNames', [])
-    .map((name) => name.trim())
-    .filter(Boolean);
-  const openSearchMappingIndexes = config.get<string[]>('openSearchMappingIndexes', [])
-    .map((index) => index.trim())
-    .filter(Boolean);
-  const includedIndexes = config.get<string[]>('includedIndexes', [])
-    .map((index) => index.trim())
-    .filter(Boolean);
-
-  const standalone = config.get<StandaloneConfig>('standalone', {
-    fileExtensions: ['.ppl', '.pplquery', '.query'],
-    languageIds: ['ppl'],
-  });
-
-  const defaultEmbedded: EmbeddedRuleConfig[] = [
-    {
-      id: 'yaml-detection-rules',
-      filePattern: '**/*.{yaml,yml}',
-      format: 'yaml',
-      keyPatterns: [
-        'query',
-        'ppl',
-        'ppl_query',
-        'rule.query',
-        'detection.condition',
-        '*.query',
-        'detectors.*.query',
-        'alerts.*.condition.ppl',
-      ],
-      heuristicDetection: true,
-    },
-    {
-      id: 'toml-agent-configs',
-      filePattern: '**/*.toml',
-      format: 'toml',
-      keyPatterns: ['query', 'ppl', '*.query', 'transforms.*.query'],
-      heuristicDetection: true,
-    },
-    {
-      id: 'json-dashboards',
-      filePattern: '**/*.json',
-      format: 'json',
-      keyPatterns: ['ppl', 'query', 'ppl_query'],
-      heuristicDetection: false,
-    },
-  ];
-
-  const embedded = config.get<EmbeddedRuleConfig[]>('embedded', defaultEmbedded);
-
-  const defaultRules: Record<string, DiagnosticSeverity> = {
-    PPL001: 'error',
-    PPL002: 'error',
-    PPL003: 'error',
-    PPL004: 'error',
-    PPL005: 'warning',
-    PPL006: 'warning',
-    PPL008: 'error',
-    PPL009: 'warning',
-    PPL010: 'error',
-    PPL011: 'error',
-    PPL012: 'error',
-    PPL013: 'error',
-    PPL014: 'error',
-    PPL015: 'warning',
-  };
-
-  const rules = config.get<Record<string, DiagnosticSeverity>>('rules', defaultRules);
-  const customCommands = config.get<string[]>('customCommands', []);
-  const customFunctions = config.get<string[]>('customFunctions', []);
-  const additionalKeyPatterns = config.get<string[]>('additionalKeyPatterns', []);
-  const excludeKeyPatterns = config.get<string[]>('excludeKeyPatterns', []);
-  const overrideDefaultKeyPatterns = config.get<boolean>('overrideDefaultKeyPatterns', false);
-  const lintOnType = config.get<boolean>('lintOnType', true);
-  const debounceMs = config.get<number>('debounceMs', 350);
-
-  return {
-    enabled,
-    openSearchVersion,
-    indexTemplateGlob,
-    openSearchTemplateNames,
-    openSearchMappingIndexes,
-    includedIndexes,
-    standalone,
-    embedded,
-    customCommands,
-    customFunctions,
-    additionalKeyPatterns,
-    excludeKeyPatterns,
-    overrideDefaultKeyPatterns,
-    rules,
-    lintOnType,
-    debounceMs,
-  };
+  const vscodeOverrides: PplLinterConfigOverrides = {};
+  for (const key of PPL_LINTER_CONFIG_KEYS) {
+    const inspected = config.inspect<unknown>(key);
+    const value = inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? inspected?.globalValue;
+    if (value !== undefined) Object.assign(vscodeOverrides, { [key]: value });
+  }
+  return mergePplLinterConfig(sharedConfig, vscodeOverrides);
 }

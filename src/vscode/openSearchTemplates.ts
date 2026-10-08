@@ -104,6 +104,8 @@ export class OpenSearchTemplateSource {
   private cached?: OpenSearchTemplateCache;
   private templateNames: string[] = [];
   private mappingIndexPatterns: string[] = [];
+  private configuredDomain?: string;
+  private configuredUsername?: string;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private refreshRequest?: Promise<void>;
   private disposed = false;
@@ -129,24 +131,43 @@ export class OpenSearchTemplateSource {
     return [...templateDefinitions, ...mappingDefinitions];
   }
 
-  public async setTemplateNames(names: readonly string[]): Promise<void> {
-    const normalized = [...new Set(names.map((name) => name.trim()).filter(Boolean))].sort();
-    if (normalized.join('\0') === this.templateNames.join('\0')) return;
-    this.templateNames = normalized;
-    if (!this.cached) return;
+  public setConnectionDefaults(domain?: string, username?: string): boolean {
+    const normalizedDomain = domain?.trim() || undefined;
+    const normalizedUsername = username?.trim() || undefined;
+    const changed = normalizedDomain !== this.configuredDomain || normalizedUsername !== this.configuredUsername;
+    this.configuredDomain = normalizedDomain;
+    this.configuredUsername = normalizedUsername;
+    return changed;
+  }
 
-    this.onTemplatesChanged(this.templates);
-    await this.refresh(true);
+  public async setTemplateNames(names: readonly string[]): Promise<void> {
+    await this.setSelections(names, this.mappingIndexPatterns);
   }
 
   public async setMappingIndexPatterns(patterns: readonly string[]): Promise<void> {
-    const normalized = [...new Set(patterns.map((pattern) => pattern.trim()).filter(Boolean))].sort();
-    if (normalized.join('\0') === this.mappingIndexPatterns.join('\0')) return;
-    this.mappingIndexPatterns = normalized;
-    if (!this.cached) return;
+    await this.setSelections(this.templateNames, patterns);
+  }
+
+  public async setSelections(
+    templateNames: readonly string[],
+    mappingIndexPatterns: readonly string[]
+  ): Promise<boolean> {
+    const normalizedNames = [...new Set(templateNames.map((name) => name.trim()).filter(Boolean))].sort();
+    const normalizedPatterns = [...new Set(mappingIndexPatterns.map((pattern) => pattern.trim()).filter(Boolean))].sort();
+    const namesChanged = normalizedNames.join('\0') !== this.templateNames.join('\0');
+    const patternsChanged = normalizedPatterns.join('\0') !== this.mappingIndexPatterns.join('\0');
+    if (!namesChanged && !patternsChanged) return false;
+
+    this.templateNames = normalizedNames;
+    this.mappingIndexPatterns = normalizedPatterns;
+    if (!this.cached) return false;
 
     this.onTemplatesChanged(this.templates);
-    if (normalized.length > 0) await this.refresh(true);
+    if (normalizedPatterns.length > 0 || namesChanged) {
+      await this.refresh(true);
+      return true;
+    }
+    return false;
   }
 
   public async initialize(): Promise<void> {
@@ -175,7 +196,10 @@ export class OpenSearchTemplateSource {
     const templateNamesChanged = (this.cached?.templateNames ?? []).join('\0') !== this.templateNames.join('\0');
     const mappingPatternsChanged = this.mappingIndexPatterns.length > 0 &&
       (this.cached?.mappingIndexes ?? []).join('\0') !== this.mappingIndexPatterns.join('\0');
-    if (!force && !templateNamesChanged && !mappingPatternsChanged && this.cached && this.now() - this.cached.lastPromptAt < OPEN_SEARCH_REAUTH_INTERVAL_MS) {
+    const connectionChanged = (this.configuredDomain !== undefined && this.cached?.domain !== this.configuredDomain) ||
+      (this.configuredUsername !== undefined && this.cached?.username !== this.configuredUsername);
+    if (!force && !templateNamesChanged && !mappingPatternsChanged && !connectionChanged &&
+      this.cached && this.now() - this.cached.lastPromptAt < OPEN_SEARCH_REAUTH_INTERVAL_MS) {
       const refreshDate = new Date(this.cached.lastPromptAt + OPEN_SEARCH_REAUTH_INTERVAL_MS).toLocaleString();
       this.log(`Refresh skipped until ${refreshDate}; run "PPL: Refresh OpenSearch Index Patterns" to retry now.`);
       this.scheduleRefresh();
@@ -190,7 +214,7 @@ export class OpenSearchTemplateSource {
     let domain = this.cached.domain;
     let username = this.cached.username;
     try {
-      domain = (await this.prompts.domain(this.cached.domain))?.trim();
+      domain = this.configuredDomain ?? (await this.prompts.domain(this.cached.domain))?.trim();
       if (!domain) {
         this.log('Refresh cancelled at the domain prompt.');
         return;
@@ -202,7 +226,7 @@ export class OpenSearchTemplateSource {
         return;
       }
 
-      username = (await this.prompts.username(this.cached.username))?.trim();
+      username = this.configuredUsername ?? (await this.prompts.username(this.cached.username))?.trim();
       if (!username) {
         this.log('Refresh cancelled at the username prompt.');
         return;

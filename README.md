@@ -224,30 +224,19 @@ The `pplLinter` object accepts the VS Code lint and extraction settings, plus `o
 }
 ```
 
-Built-in defaults are overridden by the shared file. Explicit VS Code settings override the file in the extension; command-line flags override it in the CLI. In the CLI, `PPL_OPENSEARCH_URL` and `PPL_OPENSEARCH_USERNAME` override file values unless their corresponding flags are given. Do not put passwords or tokens in this file: the CLI reads `PPL_OPENSEARCH_PASSWORD` from the environment, and the extension prompts for the password without saving it. `enabled`, `lintOnType`, and `debounceMs` apply only in VS Code; `cli` settings apply only to the CLI.
-
-`pplLinter.indexTemplateGlob` is empty by default and remains optional. Set a workspace-relative glob or an absolute glob for local templates in another repository. The extension watches those files and combines them with the fetched templates for index-pattern and alias matching, field/type checks, hover, and completion. A source that matches no configured template is an error. A field absent from all templates, or only allowed by a `dynamic: true` mapping, is an error when used. Fields from templates sharing an alias are combined; equivalent PPL types merge, while conflicting PPL types are reported at the field reference. The checker follows PPL implicit conversions and warns when string-to-number conversion may fail for runtime values.
-
-Use `pplLinter.openSearchMappingIndexes` to choose which live index mappings the extension fetches. It accepts index names, aliases, and patterns using `*` and `?`; it is empty by default. Use `pplLinter.includedIndexes` separately to restrict source and lookup schema checks, mapped-field hovers, and suggestions to selected names or patterns. An empty `includedIndexes` list includes all sources and lookup indexes; it filters local use of cached schemas, not what the mapping API fetches.
-
-Function signatures and casts infer types through `eval` and named `stats` outputs. Field scope follows `fields`, `table`, `rename`, `stats`, `eventstats`, and `streamstats`. After an unmodeled field-changing stage, hard missing-field checks pause to avoid false positives. Incomplete syntax suppresses dependent semantic errors. Lookup keys and selected output fields are checked against the resolved lookup index schema. When no output fields are listed, all non-key fields from the lookup schema are added. `replace` is the default mode; `append` requires an existing output field.
-
-The OpenSearch type mapping follows the documented PPL types. `keyword`, `text`, and `wildcard` map to `string`; `integer` to `int`; `long` to `bigint`; `date` to `timestamp`; `object` to `struct`; and `nested` to `array`. Unsupported OpenSearch mapping types are treated as untyped rather than guessed.
-
-For embedded YAML, TOML, and JSON queries, schema diagnostics and completions require exact source mapping, just like existing diagnostics. Decoded or folded strings remain unmappable and are skipped.
-
 ---
 
 ## Command-Line Interface
 
 ### Quick Start
 
-Requires Node.js 18 or newer. From this checkout, build once with pnpm, then run the CLI:
+Requires Node.js 18 or newer. Pack the CLI from this checkout and install it globally with npm; after installation, use `ppl-lint` directly without pnpm:
 
 ```bash
-pnpm build
-node dist/cli.js --help
-node dist/cli.js queries/ alerts/
+pnpm pack
+npm install --global ./ppl-lint-vscode-0.1.0.tgz
+ppl-lint --help
+ppl-lint queries/ alerts/
 ```
 
 Directories are scanned recursively for PPL, YAML, TOML, and JSON files. The CLI uses `.ppl-lint.jsonc` when present and otherwise uses built-in defaults; use `--corpus` for probe-result JSON with nested `results[].query` records.
@@ -280,15 +269,15 @@ Directories are scanned recursively for PPL, YAML, TOML, and JSON files. The CLI
 
 ```bash
 # Lint files and directories
-node dist/cli.js queries/ alerts/
+ppl-lint queries/ alerts/
 
 # Lint a query or piped YAML
-node dist/cli.js --query 'source=logs | where status >= 500'
-cat alert.yaml | node dist/cli.js --stdin-format yaml
+ppl-lint --query 'source=logs | where status >= 500'
+cat alert.yaml | ppl-lint --stdin-format yaml
 
 # Lint the checked-in probe corpus or use local templates
-node dist/cli.js --corpus test/fixtures/ppl-corpus-probe-results.json --format json
-node dist/cli.js --template ./opensearch-templates/ queries/
+ppl-lint --corpus test/fixtures/ppl-corpus-probe-results.json --format json
+ppl-lint --template ./opensearch-templates/ queries/
 ```
 
 For OpenSearch, set the URL and username, then enter the password at the hidden prompt:
@@ -297,9 +286,9 @@ For OpenSearch, set the URL and username, then enter the password at the hidden 
 export PPL_OPENSEARCH_URL='https://opensearch.example.com'
 export PPL_OPENSEARCH_USERNAME='reader'
 export PPL_OPENSEARCH_PASSWORD='<token>'
-node dist/cli.js --opensearch-template 'logs-*' --mapping-index 'logs-*' \
+ppl-lint --opensearch-template 'logs-*' --mapping-index 'logs-*' \
   --save-opensearch-cache ./opensearch-cache
-node dist/cli.js --template ./opensearch-cache queries/
+ppl-lint --template ./opensearch-cache queries/
 unset PPL_OPENSEARCH_PASSWORD
 ```
 

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add hover documentation for PPL commands and schema-backed fields, including inferred types for computed fields.
 - Add `pnpm run test:thorough` to run the dependency audit, typecheck, lint, tests, and production build.
 - Added a CLI
+- Add an integration test suite powered by `testcontainers-node` to verify the CLI's online schema fetching and validation behavior against a secure OpenSearch Docker instance.
 
 ### Changed
 

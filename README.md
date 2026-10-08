@@ -68,7 +68,11 @@ Target OpenSearch 3.5 with `pplLinter.openSearchVersion` (default `"3.5"`). Late
 
 ### Documentation conformance tests
 
-Run `pnpm run test:conformance` to run only the [OpenSearch 3.5 conformance suite](test/integration/opensearch-3.5-conformance.test.ts); it also runs as part of `pnpm test`. Run `pnpm run test:thorough` for the full local gate: dependency audit, typecheck, lint, all tests, and production build. The conformance cases and source-page URLs come from the [PPL commands](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/commands/index/) and [functions](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/) references. Positive cases expect no diagnostics; negative cases require a real error, not merely "unknown command" or "validation not implemented." It tests user-visible acceptance, not AST shapes. `dedup consecutive=true` requires the legacy SQL engine, and some join types require a cluster setting; these examples are configuration-dependent. This does not execute queries against OpenSearch or prove runtime behavior.
+Run `pnpm run test:conformance` to run only the [OpenSearch 3.5 conformance suite](test/integration/opensearch-3.5-conformance.test.ts); it also runs as part of `pnpm run test:integration`. Run `pnpm run test:thorough` for the full local gate: dependency audit, typecheck, lint, all tests (unit and integration), and production build. The conformance cases and source-page URLs come from the [PPL commands](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/commands/index/) and [functions](https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/) references. Positive cases expect no diagnostics; negative cases require a real error, not merely "unknown command" or "validation not implemented." It tests user-visible acceptance, not AST shapes. `dedup consecutive=true` requires the legacy SQL engine, and some join types require a cluster setting; these examples are configuration-dependent. This does not execute queries against OpenSearch or prove runtime behavior.
+
+### OpenSearch Integration tests
+
+The extension's interaction with live OpenSearch clusters (template fetching, basic authentication, schema caching, and field validations) is validated by the `test:integration` suite. This suite uses `testcontainers-node` to programmatically spin up a secure OpenSearch Docker container, load it with schemas, and verify the CLI's online behavior. Make sure your local Docker daemon is running before executing `pnpm run test:integration`.
 
 ---
 

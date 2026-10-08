@@ -37,10 +37,13 @@ pnpm run watch
 ## 2. Running Tests & Quality Checks
 
 ```bash
-# Run unit and integration tests
+# Run unit tests
 pnpm test
 
-# Run tests in interactive watch mode
+# Run integration tests (requires Docker to spin up OpenSearch)
+pnpm run test:integration
+
+# Run unit tests in interactive watch mode
 pnpm run test:watch
 
 # Generate test coverage report

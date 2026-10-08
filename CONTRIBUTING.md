@@ -8,7 +8,7 @@ Thank you for your interest in contributing to **`ppl-lint-vscode`**! This docum
 
 ### Prerequisites
 
-- **Node.js**: Version 18 or higher (`node -v`)
+- **Node.js**: Version 22.12 or higher (`node -v`) for development and the standalone CLI. The extension itself runs on the Node bundled with VS Code and needs no separate install.
 - **Package Manager**: `pnpm` (or `npm`)
 - **Visual Studio Code**: Version 1.85+
 

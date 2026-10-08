@@ -20,7 +20,7 @@ jobs:
         uses: pnpm/action-setup@v6
         with:
           version: 11
-          runtime: node@${{ matrix.node-version }}
+          runtime: node@24
           cache: false
 
       - name: Install dependencies

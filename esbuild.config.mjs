@@ -18,31 +18,40 @@ const makeExecutablePlugin = {
 };
 
 /** @type {import('esbuild').BuildOptions} */
-const buildOptions = {
-  entryPoints: {
-    extension: 'src/extension.ts',
-    cli: 'src/cliMain.ts',
-  },
+const sharedOptions = {
   bundle: true,
   outdir: 'dist',
   external: ['vscode'],
   format: 'cjs',
   platform: 'node',
   mainFields: ['module', 'main'],
-  target: 'node18',
   sourcemap: !isProduction,
   minify: isProduction,
   logLevel: 'info',
-  plugins: [makeExecutablePlugin],
 };
+
+// The extension runs inside VS Code's bundled Node (18 for VS Code 1.85), so it keeps the old target.
+// Only the standalone CLI, which bundles commander, requires Node 22.12.
+/** @type {import('esbuild').BuildOptions[]} */
+const buildConfigs = [
+  { ...sharedOptions, entryPoints: { extension: 'src/extension.ts' }, target: 'node18' },
+  {
+    ...sharedOptions,
+    entryPoints: { cli: 'src/cliMain.ts' },
+    target: 'node22',
+    plugins: [makeExecutablePlugin],
+  },
+];
 
 try {
   if (isWatch) {
-    const ctx = await esbuild.context(buildOptions);
-    await ctx.watch();
+    for (const config of buildConfigs) {
+      const ctx = await esbuild.context(config);
+      await ctx.watch();
+    }
     console.log('Watching for changes...');
   } else {
-    await esbuild.build(buildOptions);
+    await Promise.all(buildConfigs.map((config) => esbuild.build(config)));
     await chmod('dist/cli.js', 0o755).catch(() => {});
     console.log('Build completed successfully.');
   }

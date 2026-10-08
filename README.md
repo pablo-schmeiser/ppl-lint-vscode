@@ -230,7 +230,7 @@ The `pplLinter` object accepts the VS Code lint and extraction settings, plus `o
 
 ### Quick Start
 
-Requires Node.js 18 or newer. Pack the CLI and install it globally into your user environment, or run it directly from this checkout:
+The CLI requires Node.js 22.12 or newer (the VS Code extension does not; it uses the Node bundled with VS Code). Pack the CLI and install it globally into your user environment, or run it directly from this checkout:
 
 #### Global Install with pnpm (Recommended)
 

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Extend AST-backed validation for OpenSearch 3.5 PPL commands and functions, including index-template-aware field resolution and type checks for expressions, casts, operators, and function arguments.
-- Added a CLI 
+- Added a CLI
 
 ### Breaking Changes
 

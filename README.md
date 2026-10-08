@@ -355,6 +355,7 @@ source=app_logs
 - **VS Code Marketplace**: Search for `PPL Linter` and click **Install**.
 - **Open VSX Registry**: Available for VSCodium and Eclipse Theia.
 - **Manual `.vsix` Installation**:
+
   ```bash
   code --install-extension ppl-lint-vscode-0.1.0.vsix
   ```

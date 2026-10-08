@@ -64,9 +64,30 @@ jobs:
   pre-commit:
     name: Pre-commit
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.x"
-      - uses: pre-commit/action@v3.0.1
+
+      - name: Run pre-commit
+        id: pre_commit
+        uses: pre-commit/action@v3.0.1
+        continue-on-error: true
+
+      - name: Commit fixes back to branch
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "style: auto-fix linting and formatting issues [skip ci]"
+          file_pattern: "*"
+
+      - name: Verify pre-commit passed
+        if: steps.pre_commit.outcome == 'failure'
+        run: pre-commit run --all-files --show-diff-on-failure

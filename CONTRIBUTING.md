@@ -51,6 +51,9 @@ pnpm run compile
 
 # ESLint code linting
 pnpm run lint
+
+# Full gate including dependency audit and production build
+pnpm run test:thorough
 ```
 
 ---

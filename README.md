@@ -230,13 +230,40 @@ The `pplLinter` object accepts the VS Code lint and extraction settings, plus `o
 
 ### Quick Start
 
-Requires Node.js 18 or newer. Pack the CLI from this checkout and install it globally with npm; after installation, use `ppl-lint` directly without pnpm:
+Requires Node.js 18 or newer. Pack the CLI and install it globally into your user environment, or run it directly from this checkout:
+
+#### Global Install with pnpm (Recommended)
+
+Since this project uses `pnpm`, install globally into your user bin without requiring `sudo` or elevated permissions:
 
 ```bash
 pnpm pack
-npm install --global ./ppl-lint-vscode-0.1.0.tgz
+pnpm add --global ./ppl-lint-vscode-0.1.0.tgz
 ppl-lint --help
 ppl-lint queries/ alerts/
+```
+
+#### Global Install with npm
+
+On Linux/macOS, default `npm install --global` may attempt to write to `/usr/lib/node_modules` and fail with `EACCES (permission denied)`. To install without sudo, target a user directory or use a user-configured prefix:
+
+```bash
+# User-level installation on Linux (avoids EACCES / sudo issues):
+npm install --global --prefix ~/.local ./ppl-lint-vscode-0.1.0.tgz
+
+# Or if your npm global prefix is configured for your user (~/.npm-global):
+npm install --global ./ppl-lint-vscode-0.1.0.tgz
+```
+
+#### Run Directly Without Global Install
+
+You can also run the CLI directly from this checkout:
+
+```bash
+pnpm build
+pnpm cli --help
+# Or invoke the executable directly:
+./dist/cli.js --help
 ```
 
 Directories are scanned recursively for PPL, YAML, TOML, and JSON files. The CLI uses `.ppl-lint.jsonc` when present and otherwise uses built-in defaults; use `--corpus` for probe-result JSON with nested `results[].query` records.

@@ -14,6 +14,11 @@
   "bin": {
     "ppl-lint": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "syntaxes",
+    "language-configuration.json"
+  ],
   "engines": {
     "vscode": "^1.85.0",
     "node": ">=18"
@@ -43,6 +48,7 @@
   ],
   "scripts": {
     "build": "node esbuild.config.mjs --production",
+    "cli": "node dist/cli.js",
     "prepack": "pnpm build",
     "vscode:prepublish": "pnpm build",
     "watch": "node esbuild.config.mjs --watch",

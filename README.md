@@ -296,10 +296,7 @@ For OpenSearch, set the URL and username, then enter the password at the hidden 
 ```bash
 export PPL_OPENSEARCH_URL='https://opensearch.example.com'
 export PPL_OPENSEARCH_USERNAME='reader'
-printf 'OpenSearch password: '
-read -s PPL_OPENSEARCH_PASSWORD
-printf '\n'
-export PPL_OPENSEARCH_PASSWORD
+export PPL_OPENSEARCH_PASSWORD='<token>'
 node dist/cli.js --opensearch-template 'logs-*' --mapping-index 'logs-*' \
   --save-opensearch-cache ./opensearch-cache
 node dist/cli.js --template ./opensearch-cache queries/

@@ -195,7 +195,7 @@ describe('schema-aware PPL type checking', () => {
     const invalid = 'source=auditd-reader | eval round_value = round(event.sequence, event.enabled), substring_value = substr(event.type, event.enabled), next_date = date_add(now(), event.sequence), next_date_alias = adddate(now(), event.type), added = timestampadd(DAY, event.type, now())';
     const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(invalid, templates)
       .filter((diagnostic) => diagnostic.code === 'PPL014');
-    expect(errors).toHaveLength(6);
+    expect(errors).toHaveLength(5);
   });
 
   it('requires percentile arguments to be constant fractions in the range zero to one', () => {

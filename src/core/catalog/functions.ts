@@ -96,6 +96,7 @@ export const DATETIME_FUNCTIONS: readonly string[] = [
 ] as const;
 
 export const ARRAY_FUNCTIONS: readonly string[] = [
+  'array',
   'array_length',
 ] as const;
 

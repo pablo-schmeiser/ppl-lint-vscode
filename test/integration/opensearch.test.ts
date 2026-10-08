@@ -15,7 +15,7 @@ describe('OpenSearch Integration', () => {
       .withEnvironment({ 'OPENSEARCH_INITIAL_ADMIN_PASSWORD': 'Admin123!' })
       .start();
     opensearchUrl = container.getHttpUri();
-    
+
     // Seed some test data: an index template
     const templateBody = {
       index_patterns: ['logs-*'],
@@ -29,18 +29,18 @@ describe('OpenSearch Integration', () => {
         }
       }
     };
-    
+
     const authHeader = 'Basic ' + Buffer.from('admin:Admin123!').toString('base64');
 
     const templateRes = await fetch(`${opensearchUrl}/_index_template/logs-template`, {
       method: 'PUT',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Authorization': authHeader
       },
       body: JSON.stringify(templateBody)
     });
-    
+
     if (!templateRes.ok) {
       throw new Error(`Failed to create index template: ${await templateRes.text()}`);
     }
@@ -48,7 +48,7 @@ describe('OpenSearch Integration', () => {
     // Seed a specific index with a mapping
     const indexRes = await fetch(`${opensearchUrl}/mam_users`, {
       method: 'PUT',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Authorization': authHeader
       },
@@ -101,7 +101,7 @@ describe('OpenSearch Integration', () => {
       '--opensearch-template', 'logs-*',
       '--query', 'source=logs-2026 | fields host, status',
     ], { env: { PPL_OPENSEARCH_PASSWORD: 'Admin123!' } });
-    
+
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Checked 1 PPL query: no diagnostics.');
   });
@@ -114,7 +114,7 @@ describe('OpenSearch Integration', () => {
       '--opensearch-template', 'logs-*',
       '--query', 'source=logs-2026 | fields unknown_field',
     ], { env: { PPL_OPENSEARCH_PASSWORD: 'Admin123!' } });
-    
+
     const diagnostics = JSON.parse(result.stdout) as Array<Record<string, unknown>>;
     expect(result.exitCode).toBe(1);
     expect(diagnostics).toHaveLength(1);
@@ -129,7 +129,7 @@ describe('OpenSearch Integration', () => {
       '--mapping-index', 'mam_users',
       '--query', 'source=mam_users | fields id, name',
     ], { env: { PPL_OPENSEARCH_PASSWORD: 'Admin123!' } });
-    
+
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual([]);
   });
@@ -141,7 +141,7 @@ describe('OpenSearch Integration', () => {
       '--opensearch-template', 'logs-*',
       '--query', 'source=logs | head 1',
     ], { env: { PPL_OPENSEARCH_PASSWORD: 'WrongPassword!' } });
-    
+
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toMatch(/Unauthorized|401/i);
   });
@@ -149,7 +149,7 @@ describe('OpenSearch Integration', () => {
   it('tests offline cache generation --save-opensearch-cache', async () => {
     await withTempDirectory(async (directory) => {
       const cacheDirectory = path.join(directory, 'schema-cache');
-      
+
       const onlineResult = await invoke([
         '--opensearch-url', opensearchUrl,
         '--opensearch-username', 'admin',
@@ -170,13 +170,13 @@ describe('OpenSearch Integration', () => {
 
       expect(offlineResult.exitCode).toBe(0);
       expect(JSON.parse(offlineResult.stdout)).toEqual([]);
-      
+
       const offlineErrorResult = await invoke([
         '--format', 'json',
         '--template', cacheDirectory,
         '--query', 'source=mam_users | fields not_exist',
       ]);
-      
+
       const diagnostics = JSON.parse(offlineErrorResult.stdout) as Array<Record<string, unknown>>;
       expect(offlineErrorResult.exitCode).toBe(1);
       expect(diagnostics).toHaveLength(1);

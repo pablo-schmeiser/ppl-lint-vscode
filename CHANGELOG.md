@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add 97 previously missing OpenSearch 3.5 function names with researched signatures, hover descriptions, examples, and versioned documentation links. Add scalar `min`/`max` overloads, `typeof` validation, JSON argument-pair checks, and relevance named options and boosted field lists.
 - Extend PPL parsing and validation for OpenSearch 3.5 commands and functions, including command-argument checks, type checks for expressions, casts, operators, and function arguments, and syntax highlighting for new syntax.
 - Load local or live OpenSearch index templates and mappings for schema-aware field resolution, completion, and type checking. New `PPL011`-`PPL015` diagnostics report unresolved sources, unknown or untyped fields, conflicting field types, type mismatches, and risky implicit conversions.
 - Add `PPL008` for recognized command stages whose arguments are not yet covered by validation.

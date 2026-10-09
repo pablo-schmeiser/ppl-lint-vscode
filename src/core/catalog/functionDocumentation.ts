@@ -11,6 +11,11 @@ import {
 import { FUNCTION_SIGNATURES, FunctionSignature, ReturnTypeRule, TypeConstraint } from './functionSignatures';
 import { TokenType } from '../../types';
 import { tokenize } from '../lexer/tokenizer';
+import { ADDITIONAL_MATH_FUNCTIONS, STATISTICAL_FUNCTIONS } from './additionalMathFunctions';
+import { ADDITIONAL_DATETIME_FUNCTIONS } from './additionalDatetimeFunctions';
+import { ADDITIONAL_DATA_FUNCTIONS } from './additionalDataFunctions';
+
+const RESEARCHED_FUNCTIONS = [...ADDITIONAL_MATH_FUNCTIONS, ...STATISTICAL_FUNCTIONS, ...ADDITIONAL_DATETIME_FUNCTIONS, ...ADDITIONAL_DATA_FUNCTIONS];
 
 export interface FunctionDocumentation {
   name: string;
@@ -20,6 +25,7 @@ export interface FunctionDocumentation {
   returnTypes: string[];
   contexts: string[];
   examples: string[];
+  options?: Array<{ name: string; type: string }>;
   docUrl?: string;
   hasSignature: boolean;
 }
@@ -52,6 +58,19 @@ const CATEGORY_OVERRIDES: Record<string, { name: string; path: string; descripti
 };
 
 const DESCRIPTIONS: Record<string, string> = {
+  forall: 'Returns whether every array element satisfies a single-parameter boolean lambda.',
+  exists: 'Returns whether any array element satisfies a single-parameter boolean lambda.',
+  filter: 'Keeps array elements that satisfy a single-parameter boolean lambda.',
+  transform: 'Transforms each array element using a lambda. An optional second parameter is the zero-based element index.',
+  reduce: 'Accumulates array elements using an initial value and a two-parameter lambda, then optionally transforms the accumulator.',
+  mvmap: 'Maps an expression over array elements. The source array field is bound to each element within the expression.',
+  mvappend: 'Combines values and flattens array arguments into one array, excluding null values.',
+  split: 'Splits a string into an array using a delimiter.',
+  mvdedup: 'Removes duplicate and null array elements while preserving first-occurrence order.',
+  mvfind: 'Returns the zero-based index of the first array element matching a regular expression, or null if none matches.',
+  mvindex: 'Returns an array element or an inclusive range of elements. Negative indexes count from the end.',
+  mvzip: 'Joins corresponding elements of two arrays into strings, stopping at the shorter array. The default delimiter is a comma.',
+  mvjoin: 'Joins string array elements using a delimiter, excluding null elements. Only string arrays are supported.',
   lower: 'Converts a string to lowercase.',
   upper: 'Converts a string to uppercase.',
   length: 'Returns the length of a string in bytes.',
@@ -99,6 +118,19 @@ const DESCRIPTIONS: Record<string, string> = {
 };
 
 const SYNTAX_OVERRIDES: Record<string, string[]> = {
+  forall: ['forall(array, element -> condition)'],
+  exists: ['exists(array, element -> condition)'],
+  filter: ['filter(array, element -> condition)'],
+  transform: ['transform(array, element -> expression)', 'transform(array, (element, index) -> expression)'],
+  reduce: ['reduce(array, initial, (accumulator, element) -> expression, [accumulator -> result])'],
+  mvmap: ['mvmap(array, expression)'],
+  mvappend: ['mvappend(value, ...values)'],
+  split: ['split(string, delimiter)'],
+  mvdedup: ['mvdedup(array)'],
+  mvfind: ['mvfind(array, regex)'],
+  mvindex: ['mvindex(array, start, [end])'],
+  mvzip: ['mvzip(left_array, right_array, [delimiter])'],
+  mvjoin: ['mvjoin(array, delimiter)'],
   adddate: ['adddate(date, INTERVAL amount unit)', 'adddate(date, days)'],
   date_add: ['date_add(date, INTERVAL amount unit)'],
   date_sub: ['date_sub(date, INTERVAL amount unit)'],
@@ -110,6 +142,19 @@ const SYNTAX_OVERRIDES: Record<string, string[]> = {
 };
 
 const EXAMPLES: Record<string, string[]> = {
+  forall: ['| eval positive = forall(array(1, 2, 3), element -> element > 0)'],
+  exists: ['| eval positive = exists(array(-1, 2), element -> element > 0)'],
+  filter: ['| eval positive = filter(array(-1, 2), element -> element > 0)'],
+  transform: ['| eval shifted = transform(array(1, 2), (element, index) -> element + index)'],
+  reduce: ['| eval total = reduce(array(1, 2, 3), 0, (accumulator, element) -> accumulator + element)'],
+  mvmap: ['| eval numbers = array(1, 2, 3), scaled = mvmap(numbers, numbers * 10)'],
+  mvappend: ['| eval combined = mvappend(1, array(2, 3))'],
+  split: ["| eval parts = split('a;b;c', ';')"],
+  mvdedup: ['| eval unique = mvdedup(array(1, 2, 2, 3))'],
+  mvfind: ["| eval position = mvfind(array('apple', 'banana'), 'ban.*')"],
+  mvindex: ["| eval last = mvindex(array('a', 'b', 'c'), -1)"],
+  mvzip: ["| eval pairs = mvzip(array('host1', 'host2'), array('80', '443'), ':')"],
+  mvjoin: ["| eval joined = mvjoin(array('a', 'b', 'c'), ',')"],
   var_pop: ['| stats var_pop(age)'],
   var_samp: ['| stats var_samp(age)'],
   stddev_pop: ['| stats stddev_pop(age)'],
@@ -176,6 +221,10 @@ function signatureSyntax(signature: FunctionSignature): string {
 
 function returnTypeName(returnType: ReturnTypeRule): string {
   switch (returnType) {
+    case 'timeArithmetic': return 'TIME for TIME input; otherwise TIMESTAMP';
+    case 'selectedValue': return 'type of the selected argument';
+    case 'reduce': return 'accumulator type, or the final lambda result type';
+    case 'mvindex': return 'array element type, or ARRAY when end is provided';
     case 'sameAsFirst': return 'same type as the first argument';
     case 'common': return 'least restrictive common type';
     case 'case': return 'least restrictive common type of result branches';
@@ -191,10 +240,11 @@ function returnTypeName(returnType: ReturnTypeRule): string {
 export function functionDocumentation(name: string): FunctionDocumentation | undefined {
   const normalized = name.toLowerCase();
   if (!DEFAULT_KNOWN_FUNCTIONS.includes(normalized)) return undefined;
-  const category = categoryFor(normalized);
+  const researched = RESEARCHED_FUNCTIONS.find(({ name }) => name === normalized);
+  const category = researched ? { name: researched.category, path: researched.path, description: researched.description } : categoryFor(normalized);
   if (!category) return undefined;
   const signatures = FUNCTION_SIGNATURES.get(normalized) ?? [];
-  const syntax = SYNTAX_OVERRIDES[normalized] ?? signatures.map(signatureSyntax);
+  const syntax = researched?.syntax ?? SYNTAX_OVERRIDES[normalized] ?? signatures.map(signatureSyntax);
   const returnTypes = normalized === 'cast'
     ? ['target PPL type']
     : [...new Set(signatures.map(({ returnType }) => returnTypeName(returnType)))];
@@ -205,12 +255,14 @@ export function functionDocumentation(name: string): FunctionDocumentation | und
   return {
     name: normalized,
     category: category.name,
-    description: DESCRIPTIONS[normalized] ?? category.description,
+    description: researched?.description ?? DESCRIPTIONS[normalized] ?? category.description,
     syntax: syntax.length ? syntax : [`${normalized}(...)`],
     returnTypes,
     contexts,
-    examples: EXAMPLES[normalized] ?? [],
-    docUrl: `${DOCS_BASE_URL}/${category.path}/`,
+    examples: researched?.examples ?? EXAMPLES[normalized] ?? [],
+    options: signatures.flatMap((signature) => Object.entries(signature.optionalArguments ?? {})
+      .map(([name, constraint]) => ({ name, type: constraintName(constraint) }))),
+    docUrl: researched ? `https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/${category.path}/#${normalized}` : `${DOCS_BASE_URL}/${category.path}/`,
     hasSignature: signatures.length > 0 || normalized === 'cast',
   };
 }
@@ -246,6 +298,9 @@ export function renderFunctionDocumentation(documentation: FunctionDocumentation
   }
   if (documentation.contexts.length) {
     markdown.push('', `**Contexts:** ${documentation.contexts.map((context) => `\`${context}\``).join(', ')}`);
+  }
+  if (documentation.options?.length) {
+    markdown.push('', '**Named options:**', ...documentation.options.map(({ name, type }) => `- \`${name}\`: ${type}`));
   }
   if (documentation.examples.length) {
     markdown.push('', '**Example:**', '', '```ppl', ...documentation.examples, '```');

@@ -2,6 +2,10 @@
  * Standard PPL built-in functions categorized by domain.
  */
 
+import { ADDITIONAL_MATH_FUNCTIONS } from './additionalMathFunctions';
+import { ADDITIONAL_DATETIME_FUNCTIONS } from './additionalDatetimeFunctions';
+import { ADDITIONAL_DATA_FUNCTIONS } from './additionalDataFunctions';
+
 export const AGGREGATION_FUNCTIONS: readonly string[] = [
   'count',
   'avg',
@@ -33,6 +37,7 @@ export const AGGREGATION_FUNCTIONS: readonly string[] = [
 ] as const;
 
 export const MATH_FUNCTIONS: readonly string[] = [
+  ...ADDITIONAL_MATH_FUNCTIONS.map(({ name }) => name),
   'abs',
   'ceil',
   'ceiling',
@@ -72,6 +77,7 @@ export const STRING_FUNCTIONS: readonly string[] = [
 ] as const;
 
 export const DATETIME_FUNCTIONS: readonly string[] = [
+  ...ADDITIONAL_DATETIME_FUNCTIONS.map(({ name }) => name),
   'now',
   'current_timestamp',
   'date_format',
@@ -98,6 +104,19 @@ export const DATETIME_FUNCTIONS: readonly string[] = [
 export const ARRAY_FUNCTIONS: readonly string[] = [
   'array',
   'array_length',
+  'mvjoin',
+  'mvappend',
+  'split',
+  'mvdedup',
+  'mvfind',
+  'mvindex',
+  'mvzip',
+  'forall',
+  'exists',
+  'filter',
+  'transform',
+  'reduce',
+  'mvmap',
 ] as const;
 
 export const CONDITIONAL_FUNCTIONS: readonly string[] = [
@@ -124,6 +143,7 @@ export const TYPE_AND_CRYPTO_FUNCTIONS: readonly string[] = [
 ] as const;
 
 export const DEFAULT_KNOWN_FUNCTIONS: readonly string[] = [
+  ...ADDITIONAL_DATA_FUNCTIONS.filter(({ name }) => !['typeof', 'match_phrase'].includes(name)).map(({ name }) => name),
   ...AGGREGATION_FUNCTIONS,
   ...MATH_FUNCTIONS,
   ...STRING_FUNCTIONS,

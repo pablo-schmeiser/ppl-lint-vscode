@@ -23,6 +23,7 @@ spec:
           properties:
             name: { type: keyword }
         execve_command: { type: keyword }
+        callerIpAddress: { type: ip }
 `, 'auditd.yaml');
 
 const lookupTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
@@ -42,6 +43,53 @@ spec:
 `, 'workers.yaml');
 
 describe('schema-aware PPL type checking', () => {
+  it('negates the full LIKE predicate after AND', () => {
+    const query = "source=auditd-reader | where (LOWER(execve_command) LIKE '%password%' OR LOWER(execve_command) LIKE '%passwd%') AND NOT execve_command LIKE '%/etc/naemon/cluster_config.ini%'";
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
+    expect(diagnostics.filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('accepts IP and string equality comparisons in either operand order', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const operator of ['=', '==', '!=', '<>']) {
+      for (const address of ['91.179.2.196', '2001:db8::1']) {
+        for (const comparison of [
+          `callerIpAddress ${operator} '${address}'`,
+          `'${address}' ${operator} callerIpAddress`,
+        ]) {
+          const query = `source=auditd-reader | where ${comparison}`;
+          expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error'), query).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it('still rejects IP equality comparisons with numeric and boolean operands', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const value of ['1', 'true']) {
+      const query = `source=auditd-reader | where callerIpAddress = ${value}`;
+      expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'), query).toHaveLength(1);
+    }
+  });
+
+  it.each([
+    ['event.sequence = 1.5', 0],
+    ["event.sequence = '12'", 0],
+    ["'12' < event.sequence", 0],
+    ["event.sequence = 'not_numeric'", 1],
+    ['event.sequence = event.enabled', 1],
+    ["callerIpAddress > '91.179.2.196'", 1],
+    ['event.sequence in (1, 1.5, null)', 0],
+    ["event.type in ('login', null)", 0],
+    ["event.sequence in ('12')", 1],
+    ["callerIpAddress in ('91.179.2.196')", 1],
+  ])('preserves comparison coercion rules for %s', (condition, errorCount) => {
+    const query = `source=auditd-reader | where ${condition}`;
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
+    expect(diagnostics.filter(({ severity }) => severity === 'error')).toHaveLength(errorCount);
+    expect(diagnostics.filter(({ code }) => code === 'PPL014')).toHaveLength(errorCount);
+  });
+
   it('reports an undeclared field at its identifier while keeping schema-free linting unchanged', () => {
     const query = 'source=auditd-reader | where event.missing == 1';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
@@ -158,7 +206,7 @@ describe('schema-aware PPL type checking', () => {
   it('accepts compatible IF branches and rejects incompatible IF and IFNULL branches', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const valid = "source=auditd-reader | eval numeric_choice = if(event.enabled, event.sequence, 1.5), text_choice = ifnull(event.type, 'unknown')";
-    const invalid = 'source=auditd-reader | eval mixed_choice = if(event.enabled, event.type, event.sequence), mixed_fallback = ifnull(event.type, event.sequence)';
+    const invalid = 'source=auditd-reader | eval mixed_choice = if(event.enabled, event.enabled, event.sequence), mixed_fallback = ifnull(event.enabled, event.sequence)';
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
@@ -170,6 +218,37 @@ describe('schema-aware PPL type checking', () => {
       .filter((diagnostic) => diagnostic.severity === 'error');
 
     expect(errors).toEqual([]);
+  });
+
+  it('uses a shared string result for temporal IF and IFNULL branches through eval', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const expression of [
+      "if(event.enabled, now(), 'unknown')",
+      "if(event.enabled, 'unknown', now())",
+      "ifnull(now(), 'unknown')",
+      "ifnull('unknown', now())",
+      "coalesce(now(), 'unknown')",
+      "coalesce('unknown', now())",
+      "case(event.enabled, now(), 'unknown')",
+      'if(event.enabled, event.sequence, event.type)',
+      'ifnull(event.type, event.sequence)',
+    ]) {
+      const query = `source=auditd-reader | eval choice = ${expression} | eval normalized = lower(choice)`;
+      expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error'), query).toEqual([]);
+    }
+  });
+
+  it.each([
+    'if(event.enabled, event.sequence, 1.5)',
+    'ifnull(event.sequence, 1.5)',
+    'coalesce(null, event.sequence, 1.5)',
+    'case(event.enabled, event.sequence, 1.5)',
+    'case(event.enabled, event.sequence, event.enabled, 1.5)',
+  ])('widens conditional numeric results for %s', (expression) => {
+    const query = `source=auditd-reader | eval choice = ${expression} | where choice > 0`;
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(typedFieldScopeAt(query, templates, query.length)?.get('choice')?.pplTypes).toEqual(['double']);
   });
 
   it('restricts relevance-search functions to WHERE while accepting pushed-down use', () => {

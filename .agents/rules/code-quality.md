@@ -4,7 +4,7 @@ When writing code or reviewing changes in this project, enforce the following co
 
 1. **Linting**:
    - Always run the linter to verify changes using `pnpm lint` (`eslint src`).
-   - Fix all reported errors. 
+   - Fix all reported errors.
    - No `any` types unless absolutely necessary.
 2. **Compilation**:
    - Verify that the code compiles cleanly by running `pnpm compile` (`tsc -p ./ --noEmit`).

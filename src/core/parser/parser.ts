@@ -936,8 +936,12 @@ export class PplParser {
     if (this.match(TokenType.NOT)) {
       const op = this.previous();
       const right = this.parseLogicalNot();
-      return createUnaryExpressionNode(op.value, right, { start: op.span.start, end: right.span.end });
+      return createUnaryExpressionNode(op.value, right, {
+        start: op.span.start,
+        end: right.span.end,
+      });
     }
+
     return this.parseEquality();
   }
 

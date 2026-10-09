@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { PplLinter } from '../../src/core/linter';
 import { tokenize } from '../../src/core/lexer/tokenizer';
 import { parsePpl } from '../../src/core/parser/parser';
-import { EvalStageNode, FunctionCallNode, LambdaExpressionNode, TokenType, WhereStageNode } from '../../src/types';
+import {
+  EvalStageNode,
+  FunctionCallNode,
+  LambdaExpressionNode,
+  TokenType,
+  WhereStageNode,
+} from '../../src/types';
 
 describe('logical NOT precedence', () => {
   it.each([
@@ -14,20 +20,36 @@ describe('logical NOT precedence', () => {
   ])('negates the full predicate in %s', (predicate, type, operator) => {
     const ast = parsePpl(`source=logs | where ${predicate}`);
     expect(ast.syntaxErrors).toEqual([]);
+
     const condition = (ast.stages[0] as WhereStageNode).condition;
     expect(condition).toMatchObject({
-      type: 'UnaryExpression', operator: 'NOT', argument: { type, ...(operator ? { operator } : {}) },
+      type: 'UnaryExpression',
+      operator: 'NOT',
+      argument: {
+        type,
+        ...(operator ? { operator } : {}),
+      },
     });
   });
 
   it('binds NOT more tightly than AND and OR', () => {
     const ast = parsePpl("source=logs | where NOT command LIKE '%password%' AND enabled OR other");
     expect(ast.syntaxErrors).toEqual([]);
+
     expect((ast.stages[0] as WhereStageNode).condition).toMatchObject({
-      type: 'BinaryExpression', operator: 'OR',
+      type: 'BinaryExpression',
+      operator: 'OR',
       left: {
-        type: 'BinaryExpression', operator: 'AND',
-        left: { type: 'UnaryExpression', operator: 'NOT', argument: { type: 'BinaryExpression', operator: 'LIKE' } },
+        type: 'BinaryExpression',
+        operator: 'AND',
+        left: {
+          type: 'UnaryExpression',
+          operator: 'NOT',
+          argument: {
+            type: 'BinaryExpression',
+            operator: 'LIKE',
+          },
+        },
         right: { type: 'Identifier', name: 'enabled' },
       },
       right: { type: 'Identifier', name: 'other' },

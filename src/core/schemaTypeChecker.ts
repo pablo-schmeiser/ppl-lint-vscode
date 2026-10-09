@@ -131,7 +131,9 @@ function inferField(identifier: IdentifierNode, fields: Map<string, KnownField>,
   return { type: types[0], arrayElementType: field?.arrayElementType, isConstant: false };
 }
 
-function isNumeric(type: ExpressionType): type is Extract<PplType, 'tinyint' | 'smallint' | 'int' | 'bigint' | 'float' | 'double'> {
+function isNumeric(
+  type: ExpressionType
+): type is Extract<PplType, 'tinyint' | 'smallint' | 'int' | 'bigint' | 'float' | 'double'> {
   return type !== 'null' && type !== 'unknown' && type !== 'interval' && NUMERIC_TYPES.has(type);
 }
 
@@ -283,17 +285,38 @@ function checkArguments(
 
 type CommonTypeMode = 'result' | 'strict' | 'comparison' | 'equality';
 
-function resolveCommonType(types: readonly ExpressionType[], mode: CommonTypeMode = 'result'): ExpressionType | undefined {
+function resolveCommonType(
+  types: readonly ExpressionType[],
+  mode: CommonTypeMode = 'result'
+): ExpressionType | undefined {
   const knownTypes = types.filter((type) => type !== 'null' && type !== 'unknown');
+
   if (knownTypes.length === 0) return 'unknown';
   if (knownTypes.every((type) => type === knownTypes[0])) return knownTypes[0];
+
   if (knownTypes.every(isNumeric)) {
-    return knownTypes.slice(1).reduce<PplType>((previous, current) => widerNumeric(previous, current), knownTypes[0] as PplType);
+    return knownTypes.slice(1).reduce<PplType>(
+      (previous, current) => widerNumeric(previous, current),
+      knownTypes[0] as PplType
+    );
   }
+
   if (mode === 'result' && knownTypes.includes('string')) return 'string';
-  if ((mode === 'comparison' || mode === 'equality') &&
-      knownTypes.every((type) => type === 'string' || isNumeric(type))) return 'double';
-  if (mode === 'equality' && knownTypes.every((type) => type === 'ip' || type === 'string')) return 'ip';
+
+  if (
+    (mode === 'comparison' || mode === 'equality') &&
+    knownTypes.every((type) => type === 'string' || isNumeric(type))
+  ) {
+    return 'double';
+  }
+
+  if (
+    mode === 'equality' &&
+    knownTypes.every((type) => type === 'ip' || type === 'string')
+  ) {
+    return 'ip';
+  }
+
   return undefined;
 }
 
@@ -301,12 +324,19 @@ function inferCommonType(args: readonly InferredExpression[]): ExpressionType {
   return resolveCommonType(args.map(({ type }) => type)) ?? 'unknown';
 }
 
-function resultArguments(signature: FunctionSignature, args: readonly InferredExpression[]): readonly InferredExpression[] | undefined {
+function resultArguments(
+  signature: FunctionSignature,
+  args: readonly InferredExpression[]
+): readonly InferredExpression[] | undefined {
   if (signature.returnType === 'if') return args.slice(1);
   if (signature.returnType === 'common') return args;
+
   if (signature.returnType === 'case') {
-    return args.filter((_argument, index) => index % 2 === 1 || (args.length % 2 === 1 && index === args.length - 1));
+    return args.filter((_argument, index) =>
+      index % 2 === 1 || (args.length % 2 === 1 && index === args.length - 1)
+    );
   }
+
   return undefined;
 }
 
@@ -329,7 +359,11 @@ function inferReturnType(signature: FunctionSignature, args: InferredExpression[
     const types = args.map(({ type }) => type).filter(isNumeric);
     return types.length ? resolveCommonType(types, 'strict') ?? 'unknown' : 'int';
   }
-  if (signature.returnType === 'if' || signature.returnType === 'common' || signature.returnType === 'case') {
+  if (
+    signature.returnType === 'if' ||
+    signature.returnType === 'common' ||
+    signature.returnType === 'case'
+  ) {
     return inferCommonType(resultArguments(signature, args) ?? []);
   }
   if (signature.returnType === 'fromUnixTime') return args.length > 1 ? 'string' : 'timestamp';
@@ -508,8 +542,12 @@ function inferExpression(
     }
     const checkedArgs = checkArguments(call, signature, args, diagnostics);
     const results = resultArguments(signature, checkedArgs);
-    if (results && (signature.returnType === 'if' || signature.returnType === 'common') &&
-        functionName !== 'coalesce' && resolveCommonType(results.map(({ type }) => type)) === undefined) {
+    if (
+      results &&
+      (signature.returnType === 'if' || signature.returnType === 'common') &&
+      functionName !== 'coalesce' &&
+      resolveCommonType(results.map(({ type }) => type)) === undefined
+    ) {
       mismatch(`Function '${call.functionName}' arguments have incompatible result types.`, call.span, diagnostics);
     }
     let arrayElementType: ExpressionType | undefined;
@@ -573,7 +611,13 @@ function inferExpression(
     const left = inferExpression(membership.left, fields, diagnostics, context, insideAggregate, insideGroupBy);
     for (const value of membership.values) {
       const right = inferExpression(value, fields, diagnostics, context, insideAggregate, insideGroupBy);
-      if (!areCompatibleTypes(left.type, right.type)) mismatch(`IN compares incompatible types '${left.type}' and '${right.type}'.`, value.span, diagnostics);
+      if (!areCompatibleTypes(left.type, right.type)) {
+        mismatch(
+          `IN compares incompatible types '${left.type}' and '${right.type}'.`,
+          value.span,
+          diagnostics
+        );
+      }
     }
     return { type: 'boolean', isConstant: false };
   }

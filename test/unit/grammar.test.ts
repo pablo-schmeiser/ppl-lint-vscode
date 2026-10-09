@@ -3,6 +3,9 @@ import * as path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createOnigScanner, createOnigString, loadWASM } from 'vscode-oniguruma';
 import { Registry, parseRawGrammar, type IGrammar } from 'vscode-textmate';
+import { ADDITIONAL_MATH_FUNCTIONS } from '../../src/core/catalog/additionalMathFunctions';
+import { ADDITIONAL_DATETIME_FUNCTIONS } from '../../src/core/catalog/additionalDatetimeFunctions';
+import { ADDITIONAL_DATA_FUNCTIONS } from '../../src/core/catalog/additionalDataFunctions';
 
 let grammar: IGrammar;
 
@@ -29,6 +32,27 @@ function scopesAt(line: string, needle: string, occurrence = 0): string[] {
 }
 
 describe('PPL TextMate grammar', () => {
+  it.each([...ADDITIONAL_MATH_FUNCTIONS, ...ADDITIONAL_DATETIME_FUNCTIONS, ...ADDITIONAL_DATA_FUNCTIONS])(
+    'highlights researched function $name but not strings or field names', ({ name }) => {
+      expect(scopesAt(`| eval result = ${name}()`, `${name}(`)).toContain('support.function.ppl');
+      expect(scopesAt(`| fields \`${name}\``, `\`${name}\``)).not.toContain('support.function.ppl');
+      expect(scopesAt(`| eval result = '${name}()'`, `${name}(`)).toContain('string.quoted.single.ppl');
+    },
+  );
+
+  it.each([
+    'array', 'array_length', 'forall', 'exists', 'filter', 'transform', 'reduce',
+    'mvjoin', 'mvappend', 'split', 'mvdedup', 'mvfind', 'mvindex', 'mvmap', 'mvzip',
+  ])('highlights collection function %s without coloring a field of that name', (name) => {
+    expect(scopesAt(`| eval result = ${name}()`, name)).toContain('support.function.ppl');
+    expect(scopesAt(`| fields ${name}`, name)).not.toContain('support.function.ppl');
+  });
+
+  it('highlights a lambda arrow as one operator', () => {
+    expect(scopesAt('| eval result = transform(array(1), element -> element + 1)', '->'))
+      .toContain('keyword.operator.lambda.ppl');
+  });
+
   it('colors commands, clauses, functions, options, and monitor fields', () => {
     expect(scopesAt('| lookup users user as name replace holiday', 'lookup')).toContain('keyword.control.ppl');
     expect(scopesAt('| lookup users user as name replace holiday', 'replace')).toContain('keyword.other.ppl');

@@ -1,7 +1,10 @@
 import { PplType } from '../pplTypes';
+import { ADDITIONAL_MATH_FUNCTIONS, STATISTICAL_FUNCTIONS } from './additionalMathFunctions';
+import { ADDITIONAL_DATETIME_FUNCTIONS } from './additionalDatetimeFunctions';
+import { ADDITIONAL_DATA_FUNCTIONS } from './additionalDataFunctions';
 
-export type TypeConstraint = 'any' | 'numeric' | 'string' | 'stringLike' | 'boolean' | 'temporal' | 'array' | 'scalar' | 'interval' | 'numericOrInterval' | 'numericOrTemporal';
-export type ReturnTypeRule = PplType | 'sameAsFirst' | 'common' | 'if' | 'case' | 'widerNumeric' | 'fromUnixTime' | 'earliestLatest' | 'addDate' | 'unknown';
+export type TypeConstraint = 'any' | 'numeric' | 'string' | 'stringLike' | 'boolean' | 'temporal' | 'array' | 'scalar' | 'interval' | 'numericOrInterval' | 'numericOrTemporal' | 'lambda' | 'integer' | 'numericOrString' | 'strftimeInput' | 'temporalOrNumeric';
+export type ReturnTypeRule = PplType | 'sameAsFirst' | 'common' | 'if' | 'case' | 'widerNumeric' | 'fromUnixTime' | 'earliestLatest' | 'addDate' | 'mvindex' | 'reduce' | 'selectedValue' | 'timeArithmetic' | 'unknown';
 
 export interface FunctionSignature {
   name: string;
@@ -16,10 +19,18 @@ export interface FunctionSignature {
   integerLiteralArguments?: readonly number[];
   fractionArguments?: readonly number[];
   strictNumericArguments?: readonly number[];
-  special?: 'case';
+  lambdaArguments?: Record<number, { minParameters: number; maxParameters: number; booleanResult?: boolean }>;
+  integerRanges?: Record<number, readonly [number, number]>;
+  allowedValues?: Record<number, readonly (string | number)[]>;
+  argumentPairs?: { start: number; key: TypeConstraint };
+  optionalArguments?: Record<string, TypeConstraint>;
+  special?: 'case' | 'relevance';
 }
 
 const signatures: FunctionSignature[] = [
+  ...[...ADDITIONAL_MATH_FUNCTIONS, ...STATISTICAL_FUNCTIONS].flatMap(({ signatures }) => signatures),
+  ...ADDITIONAL_DATETIME_FUNCTIONS.flatMap(({ signatures }) => signatures),
+  ...ADDITIONAL_DATA_FUNCTIONS.flatMap(({ signatures }) => signatures),
   { name: 'abs', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'sameAsFirst' },
   { name: 'ceil', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'sameAsFirst' },
   { name: 'ceiling', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'sameAsFirst' },
@@ -80,7 +91,6 @@ const signatures: FunctionSignature[] = [
   { name: 'list', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'array', contexts: ['stats', 'eventstats', 'streamstats'] },
   { name: 'take', minArgs: 1, maxArgs: 2, arguments: ['any', 'numeric'], returnType: 'array', contexts: ['stats'], integerLiteralArguments: [1] },
   { name: 'regexp_match', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean', contexts: ['where'] },
-  { name: 'match_phrase', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean', contexts: ['where'] },
   { name: 'md5', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'string' },
   { name: 'sha1', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'string' },
   { name: 'date_format', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'string'], returnType: 'string' },
@@ -102,6 +112,19 @@ const signatures: FunctionSignature[] = [
   { name: 'adddate', minArgs: 2, maxArgs: 2, arguments: ['temporal', 'numericOrInterval'], returnType: 'addDate' },
   { name: 'array', minArgs: 0, arguments: [], variadic: 'any', returnType: 'array' },
   { name: 'array_length', minArgs: 1, maxArgs: 1, arguments: ['array'], returnType: 'int' },
+  { name: 'mvjoin', minArgs: 2, maxArgs: 2, arguments: ['array', 'string'], returnType: 'string' },
+  { name: 'mvappend', minArgs: 1, arguments: ['any'], variadic: 'any', returnType: 'array' },
+  { name: 'split', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'array' },
+  { name: 'mvdedup', minArgs: 1, maxArgs: 1, arguments: ['array'], returnType: 'array' },
+  { name: 'mvfind', minArgs: 2, maxArgs: 2, arguments: ['array', 'string'], returnType: 'int' },
+  { name: 'mvindex', minArgs: 2, maxArgs: 3, arguments: ['array', 'numeric', 'numeric'], returnType: 'mvindex' },
+  { name: 'mvzip', minArgs: 2, maxArgs: 3, arguments: ['array', 'array', 'string'], returnType: 'array' },
+  { name: 'forall', minArgs: 2, maxArgs: 2, arguments: ['array', 'lambda'], returnType: 'boolean', lambdaArguments: { 1: { minParameters: 1, maxParameters: 1, booleanResult: true } } },
+  { name: 'exists', minArgs: 2, maxArgs: 2, arguments: ['array', 'lambda'], returnType: 'boolean', lambdaArguments: { 1: { minParameters: 1, maxParameters: 1, booleanResult: true } } },
+  { name: 'filter', minArgs: 2, maxArgs: 2, arguments: ['array', 'lambda'], returnType: 'array', lambdaArguments: { 1: { minParameters: 1, maxParameters: 1, booleanResult: true } } },
+  { name: 'transform', minArgs: 2, maxArgs: 2, arguments: ['array', 'lambda'], returnType: 'array', lambdaArguments: { 1: { minParameters: 1, maxParameters: 2 } } },
+  { name: 'reduce', minArgs: 3, maxArgs: 4, arguments: ['array', 'any', 'lambda', 'lambda'], returnType: 'reduce', lambdaArguments: { 2: { minParameters: 2, maxParameters: 2 }, 3: { minParameters: 1, maxParameters: 1 } } },
+  { name: 'mvmap', minArgs: 2, maxArgs: 2, arguments: ['array', 'any'], returnType: 'array' },
   { name: 'span', minArgs: 2, maxArgs: 2, arguments: ['numericOrTemporal', 'any'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats'] },
   { name: 'timestampadd', minArgs: 3, maxArgs: 3, arguments: ['any', 'numeric', 'temporal'], returnType: 'timestamp', constantArguments: [0], strictNumericArguments: [1] },
   { name: 'timestampdiff', minArgs: 3, maxArgs: 3, arguments: ['any', 'temporal', 'temporal'], returnType: 'bigint', constantArguments: [0] },

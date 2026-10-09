@@ -4,6 +4,8 @@ import {
   ExpressionNode,
   FunctionCallNode,
   InExpressionNode,
+  LambdaExpressionNode,
+  NamedArgumentNode,
   LintRule,
   PipelineNode,
   OptionStageNode,
@@ -77,6 +79,10 @@ export const PPL005_UnknownFunction: LintRule = {
         for (const arg of func.arguments) {
           inspectExpression(arg);
         }
+      } else if (expr.type === 'NamedArgument') {
+        inspectExpression((expr as NamedArgumentNode).value);
+      } else if (expr.type === 'LambdaExpression') {
+        inspectExpression((expr as LambdaExpressionNode).body);
       } else if (expr.type === 'BinaryExpression') {
         const bin = expr as BinaryExpressionNode;
         inspectExpression(bin.left);

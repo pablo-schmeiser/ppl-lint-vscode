@@ -41,6 +41,21 @@ spec:
 `, 'workers-extra.yaml')];
 
 describe('completion candidates', () => {
+  it('suggests integer fields for integer arguments and numeric or string fields for mixed arguments', () => {
+    const integerQuery = 'source=auditd-reader | eval value = rand(';
+    const integerFields = completionCandidates(integerQuery, integerQuery.length, templates).filter(({ kind }) => kind === 'field');
+    expect(integerFields.map(({ label }) => label)).toEqual(['pid']);
+    const mixedQuery = 'source=auditd-reader | eval value = max(';
+    const mixedFields = completionCandidates(mixedQuery, mixedQuery.length, templates).filter(({ kind }) => kind === 'field');
+    expect(mixedFields.map(({ label }) => label).sort()).toEqual(['host.name', 'pid']);
+  });
+
+  it('suggests temporal type constants for get_format instead of interval units', () => {
+    const query = 'source=auditd-reader | eval value = get_format(';
+    expect(completionCandidates(query, query.length, templates).map(({ label }) => label).sort())
+      .toEqual(['DATE', 'TIME', 'TIMESTAMP']);
+  });
+
   it('suggests configured lookup indexes by prefix', () => {
     const query = 'source=auditd-reader | lookup wor';
     expect(completionCandidates(query, query.length, lookupTemplates)

@@ -8,6 +8,14 @@ import { extractQueries } from '../../src/extractors/extractor';
 import { offsetToPosition } from '../../src/extractors/sourcemap';
 
 describe('PPL function documentation', () => {
+  it('documents named relevance options and links to the researched version', () => {
+    const documentation = functionDocumentation('match')!;
+    expect(documentation.options).toContainEqual({ name: 'lenient', type: 'boolean' });
+    expect(documentation.options).toContainEqual({ name: 'boost', type: 'number' });
+    expect(renderFunctionDocumentation(documentation)).toContain('`operator`: string');
+    expect(documentation.docUrl).toBe('https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/relevance/#match');
+  });
+
   it('resolves signature, syntax, result, context, and docs link at an incomplete call', () => {
     const query = 'source=events | eval next = date_add(now(), INTERVAL 1 DAY)';
     const start = query.indexOf('date_add');

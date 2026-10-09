@@ -2,7 +2,91 @@ import { describe, expect, it } from 'vitest';
 import { PplLinter } from '../../src/core/linter';
 import { tokenize } from '../../src/core/lexer/tokenizer';
 import { parsePpl } from '../../src/core/parser/parser';
-import { TokenType } from '../../src/types';
+import {
+  EvalStageNode,
+  FunctionCallNode,
+  LambdaExpressionNode,
+  TokenType,
+  WhereStageNode,
+} from '../../src/types';
+
+describe('logical NOT precedence', () => {
+  it.each([
+    ["NOT command LIKE '%password%'", 'BinaryExpression', 'LIKE'],
+    ['NOT enabled = true', 'BinaryExpression', '='],
+    ['NOT count + 1 > -2', 'BinaryExpression', '>'],
+    ['NOT count IN (1, 2)', 'InExpression', undefined],
+    ['NOT NOT enabled', 'UnaryExpression', 'NOT'],
+  ])('negates the full predicate in %s', (predicate, type, operator) => {
+    const ast = parsePpl(`source=logs | where ${predicate}`);
+    expect(ast.syntaxErrors).toEqual([]);
+
+    const condition = (ast.stages[0] as WhereStageNode).condition;
+    expect(condition).toMatchObject({
+      type: 'UnaryExpression',
+      operator: 'NOT',
+      argument: {
+        type,
+        ...(operator ? { operator } : {}),
+      },
+    });
+  });
+
+  it('binds NOT more tightly than AND and OR', () => {
+    const ast = parsePpl("source=logs | where NOT command LIKE '%password%' AND enabled OR other");
+    expect(ast.syntaxErrors).toEqual([]);
+
+    expect((ast.stages[0] as WhereStageNode).condition).toMatchObject({
+      type: 'BinaryExpression',
+      operator: 'OR',
+      left: {
+        type: 'BinaryExpression',
+        operator: 'AND',
+        left: {
+          type: 'UnaryExpression',
+          operator: 'NOT',
+          argument: {
+            type: 'BinaryExpression',
+            operator: 'LIKE',
+          },
+        },
+        right: { type: 'Identifier', name: 'enabled' },
+      },
+      right: { type: 'Identifier', name: 'other' },
+    });
+  });
+});
+
+describe('collection lambda expressions', () => {
+  it.each([
+    ['element -> element > 0', ['element']],
+    ['(element) -> element + 2', ['element']],
+    ['(element, index) -> element + index', ['element', 'index']],
+    ['(accumulator, element) -> accumulator + element', ['accumulator', 'element']],
+  ])('parses %s with a full body span', (lambda, parameters) => {
+    const query = `source=people | eval result = transform(array(1, 2), ${lambda})`;
+    const ast = parsePpl(query);
+    const call = (ast.stages[0] as EvalStageNode).assignments[0].value as FunctionCallNode;
+    const expression = call.arguments[1] as LambdaExpressionNode;
+
+    expect(ast.syntaxErrors).toEqual([]);
+    expect(expression.type).toBe('LambdaExpression');
+    expect(expression.parameters.map((parameter) => parameter.name)).toEqual(parameters);
+    expect(query.slice(expression.span.start.offset, expression.span.end.offset)).toBe(lambda);
+    expect(expression.body.type).toBe('BinaryExpression');
+    expect(tokenize(lambda).filter(({ type }) => type === TokenType.ARROW)).toHaveLength(1);
+  });
+
+  it('reports a missing lambda body', () => {
+    expect(parsePpl('source=people | eval result = transform(array(1), element ->)').syntaxErrors.length)
+      .toBeGreaterThan(0);
+  });
+
+  it('rejects a trailing comma in lambda parameters', () => {
+    expect(parsePpl('source=people | eval result = transform(array(1), (element,) -> element)').syntaxErrors.length)
+      .toBeGreaterThan(0);
+  });
+});
 
 describe('PPL Tokenizer', () => {
   it('tokenizes simple source and pipe commands with exact spans', () => {

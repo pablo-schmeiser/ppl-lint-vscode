@@ -43,6 +43,34 @@ spec:
 `, 'workers.yaml');
 
 describe('schema-aware PPL type checking', () => {
+  it.each([
+    ['if(true, array(@timestamp), array(@timestamp))', [2, 3]],
+    ['if(true, array(@timestamp), null)', [2]],
+    ['if(true, null, array(@timestamp))', [3]],
+  ])('rejects array branches in %s', (expression, argumentNumbers) => {
+    const timestampTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
+metadata: { name: auditd }
+spec:
+  indexPatterns: ['auditd-*']
+  template:
+    aliases: { auditd-reader: {} }
+    mappings:
+      properties:
+        '@timestamp': { type: date }
+`, 'timestamp.yaml');
+    const query = `source=auditd-reader
+      | eval picked = ${expression}
+      | eval item = mvindex(picked, 0)
+      | eval invalid = length(item)`;
+    expect(parsePpl(query).syntaxErrors).toEqual([]);
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, timestampTemplates)
+      .filter(({ code }) => code === 'PPL014');
+    expect(errors).toHaveLength(argumentNumbers.length);
+    expect(errors.map(({ message }) => message)).toEqual(argumentNumbers.map((argument) =>
+      `Function 'if' argument ${argument} requires nonArray, got array.`
+    ));
+  });
+
   it('negates the full LIKE predicate after AND', () => {
     const query = "source=auditd-reader | where (LOWER(execve_command) LIKE '%password%' OR LOWER(execve_command) LIKE '%passwd%') AND NOT execve_command LIKE '%/etc/naemon/cluster_config.ini%'";
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
@@ -194,15 +222,78 @@ describe('schema-aware PPL type checking', () => {
       .filter(({ severity }) => severity === 'error')).toEqual([]);
   });
 
-  it('rejects VALUES on an explicit array but accepts scalar inputs', () => {
+  it.each(['list', 'values'])('rejects %s on an explicit array but accepts scalar inputs', (aggregation) => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     for (const input of ["array('tenant')", "split(event.type, ',')"]) {
-      const query = `source=auditd-reader | stats values(${input}) as tenants`;
+      const query = `source=auditd-reader | stats ${aggregation}(${input}) as tenants`;
       expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'))
-        .toMatchObject([{ message: "Function 'values' argument 1 requires scalar, got array." }]);
+        .toMatchObject([{ message: `Function '${aggregation}' argument 1 requires scalar, got array.` }]);
     }
-    const query = 'source=auditd-reader | stats values(event.type), values(event.sequence), values(event.enabled), values(callerIpAddress)';
+    const query = `source=auditd-reader | stats ${aggregation}(event.type), ${aggregation}(event.sequence), ${aggregation}(event.enabled), ${aggregation}(callerIpAddress)`;
     expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it.each(['list', 'values'])('infers string elements from %s with numeric input', (aggregation) => {
+    const query = `source=auditd-reader | stats ${aggregation}(123) as items
+      | eval probe_item = mvindex(items, 0)
+      | eval probe_length = length(probe_item)
+      | fields probe_item, probe_length`;
+    const fields = typedFieldScopeAt(query, templates, query.indexOf('fields probe_item'));
+    expect(fields?.get('probe_item')?.pplTypes).toEqual(['string']);
+    expect(fields?.get('probe_length')?.pplTypes).toEqual(['int']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('rejects LIST on an array field produced by eval', () => {
+    const query = 'source=auditd-reader | eval probe_array = array(123) | stats list(probe_array) as probe_list';
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toMatchObject([
+      { code: 'PPL014', message: "Function 'list' argument 1 requires scalar, got array." },
+    ]);
+  });
+
+  it.each([
+    ['now()', 'timestamp'],
+    ['123', 'int'],
+    ['mvindex(array(123), 0)', 'int'],
+  ])('rejects LENGTH on %s without implicit string coercion', (expression, type) => {
+    const query = `source=auditd-reader | eval probe_item = ${expression} | eval probe_length = length(probe_item)`;
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toMatchObject([
+      { code: 'PPL014', message: `Function 'length' argument 1 requires string, got ${type}.` },
+    ]);
+  });
+
+  it('infers a string when MVINDEX extracts a mapped timestamp array element', () => {
+    const timestampTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
+metadata: { name: auditd }
+spec:
+  indexPatterns: ['auditd-*']
+  template:
+    aliases: { auditd-reader: {} }
+    mappings:
+      properties:
+        '@timestamp': { type: date }
+`, 'timestamp.yaml');
+    const query = `source=auditd-reader | head 1
+      | eval probe_array = array(@timestamp)
+      | eval probe_item = mvindex(probe_array, 0)
+      | eval probe_length = length(probe_item)
+      | fields @timestamp, probe_array, probe_item, probe_length`;
+    const fields = typedFieldScopeAt(query, timestampTemplates, query.indexOf('fields @timestamp'));
+    expect(fields?.get('@timestamp')?.pplTypes).toEqual(['timestamp']);
+    expect(fields?.get('probe_array')?.pplTypes).toEqual(['array']);
+    expect(fields?.get('probe_item')?.pplTypes).toEqual(['string']);
+    expect(fields?.get('probe_length')?.pplTypes).toEqual(['int']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, timestampTemplates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('accepts extracting a timestamp array element without using it as a string', () => {
+    const query = 'source=auditd-reader | eval probe_array = array(now()) | eval probe_item = mvindex(probe_array, 0) | fields probe_array, probe_item';
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
   });
 
   it('preserves collected arrays through streamstats and type-preserving aggregates', () => {

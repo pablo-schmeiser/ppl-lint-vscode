@@ -3,7 +3,7 @@ import { ADDITIONAL_MATH_FUNCTIONS, STATISTICAL_FUNCTIONS } from './additionalMa
 import { ADDITIONAL_DATETIME_FUNCTIONS } from './additionalDatetimeFunctions';
 import { ADDITIONAL_DATA_FUNCTIONS } from './additionalDataFunctions';
 
-export type TypeConstraint = 'any' | 'numeric' | 'string' | 'stringLike' | 'boolean' | 'temporal' | 'array' | 'scalar' | 'interval' | 'numericOrInterval' | 'numericOrTemporal' | 'lambda' | 'integer' | 'numericOrString' | 'strftimeInput' | 'temporalOrNumeric';
+export type TypeConstraint = 'any' | 'nonArray' | 'numeric' | 'string' | 'stringLike' | 'boolean' | 'temporal' | 'array' | 'scalar' | 'interval' | 'numericOrInterval' | 'numericOrTemporal' | 'lambda' | 'integer' | 'numericOrString' | 'strftimeInput' | 'temporalOrNumeric';
 export type ReturnTypeRule = PplType | 'sameAsFirst' | 'common' | 'if' | 'case' | 'widerNumeric' | 'fromUnixTime' | 'earliestLatest' | 'addDate' | 'mvindex' | 'reduce' | 'selectedValue' | 'timeArithmetic' | 'unknown';
 
 export interface FunctionSignature {
@@ -64,7 +64,7 @@ const signatures: FunctionSignature[] = [
   { name: 'ispresent', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'boolean' },
   { name: 'isblank', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'boolean' },
   { name: 'isempty', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'boolean' },
-  { name: 'if', minArgs: 3, maxArgs: 3, arguments: ['boolean', 'any', 'any'], returnType: 'if' },
+  { name: 'if', minArgs: 3, maxArgs: 3, arguments: ['boolean', 'nonArray', 'nonArray'], returnType: 'if' },
   { name: 'case', minArgs: 2, arguments: ['boolean', 'any'], variadic: 'any', returnType: 'case', special: 'case' },
   { name: 'coalesce', minArgs: 1, arguments: ['any'], variadic: 'any', returnType: 'common' },
   { name: 'ifnull', minArgs: 2, maxArgs: 2, arguments: ['any', 'any'], returnType: 'common' },
@@ -88,7 +88,7 @@ const signatures: FunctionSignature[] = [
   { name: 'percentile', minArgs: 2, maxArgs: 2, arguments: ['numeric', 'numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'], fractionArguments: [1] },
   { name: 'percentile_approx', minArgs: 2, maxArgs: 2, arguments: ['numeric', 'numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'], fractionArguments: [1] },
   { name: 'median', minArgs: 1, maxArgs: 1, arguments: ['numeric'], returnType: 'sameAsFirst', contexts: ['stats', 'eventstats', 'streamstats', 'timechart'] },
-  { name: 'list', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'array', contexts: ['stats', 'eventstats', 'streamstats'] },
+  { name: 'list', minArgs: 1, maxArgs: 1, arguments: ['scalar'], returnType: 'array', contexts: ['stats', 'eventstats', 'streamstats'] },
   { name: 'take', minArgs: 1, maxArgs: 2, arguments: ['any', 'numeric'], returnType: 'array', contexts: ['stats'], integerLiteralArguments: [1] },
   { name: 'regexp_match', minArgs: 2, maxArgs: 2, arguments: ['string', 'string'], returnType: 'boolean', contexts: ['where'] },
   { name: 'md5', minArgs: 1, maxArgs: 1, arguments: ['string'], returnType: 'string' },

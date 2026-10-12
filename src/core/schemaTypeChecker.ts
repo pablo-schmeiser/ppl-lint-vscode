@@ -169,6 +169,7 @@ function coerceStringToNumber(
 
 function accepts(constraint: TypeConstraint, type: ExpressionType): boolean {
   if (type === 'unknown' || type === 'null' || constraint === 'any') return true;
+  if (constraint === 'nonArray') return type !== 'array';
   if (constraint === 'integer') return ['tinyint', 'smallint', 'int', 'bigint'].includes(type);
   if (constraint === 'numericOrString') return isNumeric(type) || type === 'string';
   if (constraint === 'strftimeInput') return isNumeric(type) || type === 'date' || type === 'timestamp';
@@ -354,7 +355,11 @@ function inferReturnType(signature: FunctionSignature, args: InferredExpression[
     return inferCommonType(args);
   }
   if (signature.returnType === 'reduce') return args[3]?.type ?? args[1]?.type ?? 'unknown';
-  if (signature.returnType === 'mvindex') return args.length === 3 ? 'array' : args[0]?.arrayElementType ?? 'unknown';
+  if (signature.returnType === 'mvindex') {
+    if (args.length === 3) return 'array';
+    const elementType = args[0]?.arrayElementType ?? 'unknown';
+    return elementType === 'timestamp' ? 'string' : elementType;
+  }
   if (signature.returnType === 'sameAsFirst') return args[0]?.type ?? 'unknown';
   if (signature.returnType === 'widerNumeric') {
     const types = args.map(({ type }) => type).filter(isNumeric);
@@ -553,7 +558,8 @@ function inferExpression(
     }
     let arrayElementType: ExpressionType | undefined;
     if (functionName === 'array') arrayElementType = inferCommonType(checkedArgs);
-    else if (['values', 'list', 'take'].includes(functionName)) arrayElementType = checkedArgs[0]?.type;
+    else if (functionName === 'values' || functionName === 'list') arrayElementType = 'string';
+    else if (functionName === 'take') arrayElementType = checkedArgs[0]?.type;
     else if (signature.returnType === 'sameAsFirst') arrayElementType = checkedArgs[0]?.arrayElementType;
     else if (functionName === 'mvappend') {
       arrayElementType = inferCommonType(checkedArgs.map((argument) => ({

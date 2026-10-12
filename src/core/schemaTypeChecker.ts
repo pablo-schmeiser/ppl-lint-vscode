@@ -9,6 +9,7 @@ import {
   FunctionCallNode,
   IdentifierNode,
   InExpressionNode,
+  JoinStageNode,
   LiteralNode,
   LambdaExpressionNode,
   NamedArgumentNode,
@@ -552,6 +553,8 @@ function inferExpression(
     }
     let arrayElementType: ExpressionType | undefined;
     if (functionName === 'array') arrayElementType = inferCommonType(checkedArgs);
+    else if (['values', 'list', 'take'].includes(functionName)) arrayElementType = checkedArgs[0]?.type;
+    else if (signature.returnType === 'sameAsFirst') arrayElementType = checkedArgs[0]?.arrayElementType;
     else if (functionName === 'mvappend') {
       arrayElementType = inferCommonType(checkedArgs.map((argument) => ({
         ...argument, type: argument.type === 'array' ? argument.arrayElementType ?? 'unknown' : argument.type,
@@ -707,8 +710,8 @@ function applyStage(
     const context = stage.commandName.toLowerCase();
     const output = ['eventstats', 'streamstats'].includes(context) ? new Map(fields) : new Map<string, KnownField>();
     for (const aggregation of stats.aggregations) {
-      const type = inferExpression(aggregation, fields, diagnostics, context).type;
-      if (aggregation.alias) output.set(aggregation.alias, knownField(type));
+      const value = inferExpression(aggregation, fields, diagnostics, context);
+      if (aggregation.alias) output.set(aggregation.alias, knownField(value.type, [], value.arrayElementType));
     }
     if (stats.groupByExpressions) {
       for (const group of stats.groupByExpressions) {
@@ -856,7 +859,37 @@ function applyStage(
     return stage.commandName.toLowerCase() === 'timechart' ? { fields, certain: false } : { fields, certain: true };
   }
   if (stage.type === 'HeadStage') return { fields, certain: true };
-  if (stage.type === 'JoinStage') return { fields, certain: false };
+  if (stage.type === 'JoinStage') {
+    const join = stage as JoinStageNode;
+    const dataset = join.dataset;
+    const source = dataset?.type === 'Identifier' ? dataset.name
+      : dataset?.type === 'Pipeline' && dataset.source.type === 'SourceStage' ? dataset.source.indexName
+        : undefined;
+    if (!source) return { fields, certain: false };
+    let right = resolveSource(templates, source, includedIndexes);
+    if (right.size === 0) return { fields, certain: false };
+    if (dataset?.type === 'Pipeline') {
+      if (dataset.syntaxErrors.length > 0) return { fields, certain: false };
+      for (const innerStage of dataset.stages) {
+        const result = applyStage(innerStage, right, diagnostics, templates, includedIndexes);
+        if (!result.certain) return { fields, certain: false };
+        right = result.fields;
+      }
+    }
+    if (/(?:^|\s)(?:semi|anti)$/.test(join.joinType ?? '')) return { fields, certain: true };
+    const output = new Map(fields);
+    for (const [name, field] of right) {
+      const left = fields.get(name);
+      if (join.criteria && left) {
+        output.set(name, mergeKnownFields(left, field));
+        if (join.options.left) output.set(`${join.options.left}.${name}`, left);
+        output.set(`${join.options.right ?? join.datasetAlias?.name ?? source}.${name}`, field);
+      } else if (!left || (join.fields.length > 0 && join.options.overwrite !== 'false')) {
+        output.set(name, field);
+      }
+    }
+    return { fields: output, certain: true };
+  }
   return { fields, certain: false };
 }
 

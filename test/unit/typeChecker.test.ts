@@ -165,6 +165,59 @@ describe('schema-aware PPL type checking', () => {
     }
   });
 
+  it('rejects VALUES on an array produced by an earlier stats stage across a join', () => {
+    const query = `source=auditd-reader
+      | eval tenant_name = event.type, src_ip = callerIpAddress
+      | streamstats count() as burst_id by src_ip
+      | stats VALUES(tenant_name) AS tenant_name by src_ip, burst_id
+      | left join left=w right=e on w.src_ip = e.src_ip
+        [ source=auditd-reader | eval src_ip = callerIpAddress | fields src_ip ]
+      | stats VALUES(tenant_name) AS tenant_name by src_ip
+      | eval tenant_name = mvjoin(tenant_name, ', ')`;
+    expect(parsePpl(query).syntaxErrors).toEqual([]);
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'PPL014',
+      message: "Function 'VALUES' argument 1 requires scalar, got array.",
+    });
+    expect(errors[0].span.start.offset).toBe(query.lastIndexOf('VALUES(tenant_name)') + 'VALUES('.length);
+  });
+
+  it.each(['values', 'list', 'take'])('preserves %s array element types in the next stage', (aggregation) => {
+    const query = `source=auditd-reader | stats ${aggregation}(event.type) as tenants
+      | eval tenant = mvindex(tenants, 0) | fields tenant`;
+    const fields = typedFieldScopeAt(query, templates, query.indexOf('fields tenant'));
+    expect(fields?.get('tenant')?.pplTypes).toEqual(['string']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('rejects VALUES on an explicit array but accepts scalar inputs', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const input of ["array('tenant')", "split(event.type, ',')"]) {
+      const query = `source=auditd-reader | stats values(${input}) as tenants`;
+      expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'))
+        .toMatchObject([{ message: "Function 'values' argument 1 requires scalar, got array." }]);
+    }
+    const query = 'source=auditd-reader | stats values(event.type), values(event.sequence), values(event.enabled), values(callerIpAddress)';
+    expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('preserves collected arrays through streamstats and type-preserving aggregates', () => {
+    const query = `source=auditd-reader | stats values(event.type) as tenants
+      | streamstats count() as total
+      | stats first(tenants) as tenants
+      | eval tenant = mvindex(tenants, 0), joined = mvjoin(tenants, ', ')
+      | fields tenant, joined`;
+    const fields = typedFieldScopeAt(query, templates, query.indexOf('fields tenant'));
+    expect(fields?.get('tenant')?.pplTypes).toEqual(['string']);
+    expect(fields?.get('joined')?.pplTypes).toEqual(['string']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
   it('requires literal TAKE sizes and restricts TAKE and VALUES contexts', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const valid = 'source=auditd-reader | stats take(event.type), take(event.type, 5), values(event.type), distinct_count_approx(event.type)';

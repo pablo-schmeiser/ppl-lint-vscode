@@ -134,7 +134,7 @@ const signatures: FunctionSignature[] = [
   { name: 'unix_timestamp', minArgs: 0, maxArgs: 1, arguments: ['temporal'], returnType: 'double' },
   { name: 'from_unixtime', minArgs: 1, maxArgs: 2, arguments: ['numeric', 'string'], returnType: 'fromUnixTime' },
   { name: 'nullif', minArgs: 2, maxArgs: 2, arguments: ['any', 'any'], returnType: 'sameAsFirst' },
-  { name: 'values', minArgs: 1, maxArgs: 1, arguments: ['any'], returnType: 'array', contexts: ['stats'] },
+  { name: 'values', minArgs: 1, maxArgs: 1, arguments: ['scalar'], returnType: 'array', contexts: ['stats'] },
   { name: 'earliest', minArgs: 2, maxArgs: 2, arguments: ['string', 'temporal'], returnType: 'boolean', contexts: ['eval', 'where'] },
   { name: 'earliest', minArgs: 1, maxArgs: 2, arguments: ['any', 'temporal'], returnType: 'earliestLatest', contexts: ['stats', 'eventstats', 'streamstats'] },
   { name: 'latest', minArgs: 2, maxArgs: 2, arguments: ['string', 'temporal'], returnType: 'boolean', contexts: ['eval', 'where'] },

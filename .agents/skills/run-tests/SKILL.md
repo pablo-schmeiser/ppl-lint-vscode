@@ -6,6 +6,7 @@ description: Executes the project's Vitest test suite and reports the results.
 # Run Tests Skill
 
 ## Instructions
+
 1. Determine the scope of tests to run based on the user's request (e.g., standard, conformance, or coverage).
 2. Execute the appropriate command:
    - Standard: `pnpm test`

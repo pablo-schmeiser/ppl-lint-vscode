@@ -22,14 +22,14 @@ const FUNCTIONS_WITHOUT_SIGNATURES = [
 const FUNCTIONS_WITH_SEPARATE_VALIDATION = ['cast'];
 
 const templates = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: people }
+metadata: { name: test_people }
 spec:
-  indexPatterns: ['people']
+  indexPatterns: ['test_people']
   template:
     mappings:
       properties:
         name: { type: keyword }
-`, 'people.yaml');
+`, 'test_people.yaml');
 
 describe('PPL function catalog', () => {
   it('covers every function on the OpenSearch collection documentation page', () => {
@@ -54,7 +54,7 @@ describe('PPL function catalog', () => {
     ['transform(array(1, 2), outer -> transform(array(3), inner -> inner + outer))', 'array'],
     ['filter(array(1, 2), element -> element > length(name))', 'array'],
   ])('accepts higher-order collection expression %s', (expression, resultType) => {
-    const query = `source=people | eval result = ${expression} | fields result`;
+    const query = `source=test_people | eval result = ${expression} | fields result`;
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
     expect(typedFieldScopeAt(query, templates, query.length)?.get('result')?.pplTypes).toEqual([resultType]);
   });
@@ -71,28 +71,28 @@ describe('PPL function catalog', () => {
     'mvmap(array(1))',
     'transform(array(true), element -> element + 1)',
   ])('rejects invalid higher-order collection expression %s', (expression) => {
-    const query = `source=people | eval result = ${expression}`;
+    const query = `source=test_people | eval result = ${expression}`;
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
     expect(diagnostics.some(({ code }) => code === 'PPL005')).toBe(false);
     expect(diagnostics.some(({ severity }) => severity === 'error')).toBe(true);
   });
 
   it('binds mvmap elements through a nested mvindex without changing the outer array field', () => {
-    const query = 'source=people | eval numbers = array(1, 2, 3), multiplier = 10, result = mvmap(mvindex(numbers, 1, 2), numbers * multiplier) | eval size = array_length(numbers), first = mvindex(result, 0) | fields first, size';
+    const query = 'source=test_people | eval numbers = array(1, 2, 3), multiplier = 10, result = mvmap(mvindex(numbers, 1, 2), numbers * multiplier) | eval size = array_length(numbers), first = mvindex(result, 0) | fields first, size';
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
     expect(typedFieldScopeAt(query, templates, query.length)?.get('first')?.pplTypes).toEqual(['int']);
   });
 
   it('keeps lambda parameters local and checks functions inside the body', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const outside = 'source=people | eval result = transform(array(1), element -> element + 1) | fields element';
+    const outside = 'source=test_people | eval result = transform(array(1), element -> element + 1) | fields element';
     expect(linter.lint(outside, templates).some(({ code }) => code === 'PPL012')).toBe(true);
-    const inside = 'source=people | eval result = transform(array(1), element -> nonexistent(element))';
+    const inside = 'source=test_people | eval result = transform(array(1), element -> nonexistent(element))';
     expect(linter.lint(inside, templates).some(({ code }) => code === 'PPL005')).toBe(true);
   });
 
   it('restores a shadowed outer field after checking a lambda', () => {
-    const query = 'source=people | eval result = transform(array(1), name -> name + 1) | eval label = upper(name) | fields label';
+    const query = 'source=test_people | eval result = transform(array(1), name -> name + 1) | eval label = upper(name) | fields label';
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
   });
 
@@ -107,7 +107,7 @@ describe('PPL function catalog', () => {
     ["mvzip(array('a'), array('b'))", 'array'],
     ["mvzip(array('a'), array('b'), ':')", 'array'],
   ])('accepts collection expression %s', (expression, resultType) => {
-    const query = `source=people | eval result = ${expression} | fields result`;
+    const query = `source=test_people | eval result = ${expression} | fields result`;
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
     expect(typedFieldScopeAt(query, templates, query.length)?.get('result')?.pplTypes)
       .toEqual(resultType ? [resultType] : []);
@@ -124,14 +124,14 @@ describe('PPL function catalog', () => {
     "mvzip(array('a'), 'b')",
     "mvzip(array('a'), array('b'), false)",
   ])('rejects invalid collection expression %s', (expression) => {
-    const query = `source=people | eval result = ${expression}`;
+    const query = `source=test_people | eval result = ${expression}`;
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
     expect(diagnostics.some(({ code }) => code === 'PPL005')).toBe(false);
     expect(diagnostics.some(({ severity }) => severity === 'error')).toBe(true);
   });
 
   it('recognizes mvjoin and infers a string result', () => {
-    const query = "source=people | eval result = mvjoin(array('a', 'b', 'c'), ',') | eval upper_result = upper(result)";
+    const query = "source=test_people | eval result = mvjoin(array('a', 'b', 'c'), ',') | eval upper_result = upper(result)";
     const linter = new PplLinter({ openSearchVersion: '3.5' });
 
     expect(linter.lint(query, templates)).toEqual([]);
@@ -152,7 +152,7 @@ describe('PPL function catalog', () => {
     "mvjoin('a', ',')",
     "mvjoin(array('a'), 1)",
   ])('rejects invalid mvjoin arguments: %s', (expression) => {
-    const query = `source=people | eval result = ${expression}`;
+    const query = `source=test_people | eval result = ${expression}`;
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(false);
@@ -184,7 +184,7 @@ describe('PPL function catalog', () => {
   });
 
   it('provides documentation for every known function and its valid completions', () => {
-    const query = 'source=missing | where ';
+    const query = 'source=test-missing | where ';
     const candidates = completionCandidates(query, query.length, []).filter(
       (candidate) => candidate.kind === 'function',
     );

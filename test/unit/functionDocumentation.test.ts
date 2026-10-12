@@ -17,7 +17,7 @@ describe('PPL function documentation', () => {
   });
 
   it('resolves signature, syntax, result, context, and docs link at an incomplete call', () => {
-    const query = 'source=events | eval next = date_add(now(), INTERVAL 1 DAY)';
+    const query = 'source=test_events | eval next = date_add(now(), INTERVAL 1 DAY)';
     const start = query.indexOf('date_add');
     const info = functionInfoAt(query, start + 2);
 
@@ -48,8 +48,8 @@ describe('PPL function documentation', () => {
   });
 
   it('does not resolve function-shaped text inside a string or a field reference', () => {
-    const stringQuery = "source=events | where message == 'right('";
-    const fieldQuery = 'source=events | where right > 0';
+    const stringQuery = "source=test_events | where message == 'right('";
+    const fieldQuery = 'source=test_events | where right > 0';
 
     expect(
       functionInfoAt(stringQuery, stringQuery.indexOf('right')),
@@ -61,7 +61,7 @@ describe('PPL function documentation', () => {
 
   it('maps function documentation spans from extracted YAML queries to the host', () => {
     const yaml =
-      'rule:\n  query: |\n    source=events | eval suffix = right(message, 3)\n';
+      'rule:\n  query: |\n    source=test_events | eval suffix = right(message, 3)\n';
     const [query] = extractQueries(yaml, 'yaml', ['rule.query'], false);
     const start = query.rawText.indexOf('right');
     const info = functionInfoAt(query.rawText, start + 1)!;

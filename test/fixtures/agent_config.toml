@@ -10,7 +10,7 @@ include = ["/var/log/app/*.log"]
 type = "filter"
 inputs = ["app_in"]
 query = """
-source=app_logs
+source=test_app_logs
 | where level == 'ERROR' OR response_code >= 500
 | fields timestamp, host, message
 """

@@ -37,9 +37,9 @@ function prompts(logs: string[] = []): OpenSearchTemplatePrompts {
 
 const templateResponse = {
   index_templates: [{
-    name: 'auditd-template',
+    name: 'test-audit-template',
     index_template: {
-      index_patterns: ['auditd-*'],
+      index_patterns: ['test-audit-*'],
       template: {
         mappings: { properties: { host: { type: 'keyword' } } },
       },
@@ -136,8 +136,8 @@ describe('OpenSearch template source', () => {
         authorization: `Basic ${Buffer.from('reader:do-not-cache-this').toString('base64')}`,
         redirect: 'error',
       }]);
-      expect(changed).toEqual(['auditd-template']);
-      expect(source.templates[0].patterns).toEqual(['auditd-*']);
+      expect(changed).toEqual(['test-audit-template']);
+      expect(source.templates[0].patterns).toEqual(['test-audit-*']);
       expect(logs).toContain('Fetched and parsed 1 composable index template(s).');
       expect(logs.join('\n')).not.toContain('do-not-cache-this');
       expect(JSON.stringify(storage.get<OpenSearchTemplateCache>(OPEN_SEARCH_TEMPLATE_CACHE_KEY)))
@@ -175,24 +175,24 @@ describe('OpenSearch template source', () => {
     const requests: string[] = [];
     const fetcher: OpenSearchFetcher = async (url) => {
       requests.push(url);
-      const response = url.endsWith('/_index_template/mam_*')
-        ? namedTemplateResponse('mam_users', 'mam_users-*')
-        : namedTemplateResponse('security-rules', 'security-*');
+      const response = url.endsWith('/_index_template/test_*')
+        ? namedTemplateResponse('test_users', 'test_users-*')
+        : namedTemplateResponse('test_security-rules', 'test_security-*');
       return { ok: true, status: 200, json: async () => response };
     };
     const source = new OpenSearchTemplateSource(storage, prompts(), () => undefined, fetcher, () => 1_000_000);
 
     try {
-      await source.setTemplateNames(['mam_*', 'security-*']);
+      await source.setTemplateNames(['test_*', 'test_security-*']);
       await source.initialize();
 
       expect(requests).toEqual([
-        'https://search.example.test/proxy/_index_template/mam_*',
-        'https://search.example.test/proxy/_index_template/security-*',
+        'https://search.example.test/proxy/_index_template/test_*',
+        'https://search.example.test/proxy/_index_template/test_security-*',
       ]);
-      expect(source.templates.map((template) => template.name).sort()).toEqual(['mam_users', 'security-rules']);
+      expect(source.templates.map((template) => template.name).sort()).toEqual(['test_security-rules', 'test_users']);
       expect(storage.get<OpenSearchTemplateCache>(OPEN_SEARCH_TEMPLATE_CACHE_KEY)?.templateNames)
-        .toEqual(['mam_*', 'security-*']);
+        .toEqual(['test_*', 'test_security-*']);
     } finally {
       source.dispose();
     }
@@ -206,25 +206,25 @@ describe('OpenSearch template source', () => {
       return {
         ok: true,
         status: 200,
-        json: async () => url.endsWith('/_index_template/mam_*')
-          ? namedTemplateResponse('mam_users', 'mam_users-*')
-          : namedTemplateResponse('security-rules', 'security-*'),
+        json: async () => url.endsWith('/_index_template/test_*')
+          ? namedTemplateResponse('test_users', 'test_users-*')
+          : namedTemplateResponse('test_security-rules', 'test_security-*'),
       };
     };
     const source = new OpenSearchTemplateSource(storage, prompts(), () => undefined, fetcher, () => 1_000_000);
 
     try {
-      await source.setTemplateNames(['mam_*']);
+      await source.setTemplateNames(['test_*']);
       await source.initialize();
-      expect(source.templates.map((template) => template.name)).toEqual(['mam_users']);
+      expect(source.templates.map((template) => template.name)).toEqual(['test_users']);
 
-      await source.setTemplateNames(['security-*']);
+      await source.setTemplateNames(['test_security-*']);
 
       expect(requests).toEqual([
-        'https://search.example.test/proxy/_index_template/mam_*',
-        'https://search.example.test/proxy/_index_template/security-*',
+        'https://search.example.test/proxy/_index_template/test_*',
+        'https://search.example.test/proxy/_index_template/test_security-*',
       ]);
-      expect(source.templates.map((template) => template.name)).toEqual(['security-rules']);
+      expect(source.templates.map((template) => template.name)).toEqual(['test_security-rules']);
     } finally {
       source.dispose();
     }
@@ -239,9 +239,9 @@ describe('OpenSearch template source', () => {
         ok: true,
         status: 200,
         json: async () => url.endsWith('/_mapping')
-          ? { mam_users: { mappings: { properties: { id: { type: 'keyword' } } } } }
-          : url.endsWith('/_index_template/mam_*')
-            ? namedTemplateResponse('mam_users', 'mam_users-*')
+          ? { test_users: { mappings: { properties: { id: { type: 'keyword' } } } } }
+          : url.endsWith('/_index_template/test_*')
+            ? namedTemplateResponse('test_users', 'test_users-*')
             : templateResponse,
       };
     };
@@ -251,15 +251,15 @@ describe('OpenSearch template source', () => {
       await source.initialize();
       requests.length = 0;
 
-      await source.setSelections(['mam_*'], ['mam_*']);
+      await source.setSelections(['test_*'], ['test_*']);
 
       expect(requests).toEqual([
-        'https://search.example.test/proxy/_index_template/mam_*',
-        'https://search.example.test/proxy/mam_*/_mapping',
+        'https://search.example.test/proxy/_index_template/test_*',
+        'https://search.example.test/proxy/test_*/_mapping',
       ]);
       expect(source.templates.map((template) => template.name)).toEqual([
-        'mam_users',
-        'mapping:mam_*:mam_users',
+        'test_users',
+        'mapping:test_*:test_users',
       ]);
     } finally {
       source.dispose();
@@ -270,7 +270,7 @@ describe('OpenSearch template source', () => {
     const storage = new MemoryStorage();
     const requests: string[] = [];
     const mappingResponse = {
-      mam_users_2026: {
+      test_users_2026: {
         mappings: {
           properties: {
             id: { type: 'keyword' },
@@ -278,7 +278,7 @@ describe('OpenSearch template source', () => {
           },
         },
       },
-      mam_roles_2026: {
+      test_roles_2026: {
         mappings: {
           properties: {
             id: { type: 'keyword' },
@@ -298,18 +298,18 @@ describe('OpenSearch template source', () => {
     const source = new OpenSearchTemplateSource(storage, prompts(), () => undefined, fetcher, () => 1_000_000);
 
     try {
-      await source.setMappingIndexPatterns(['mam_*']);
+      await source.setMappingIndexPatterns(['test_*']);
       await source.initialize();
 
       expect(requests).toEqual([
         'https://search.example.test/proxy/_index_template',
-        'https://search.example.test/proxy/mam_*/_mapping',
+        'https://search.example.test/proxy/test_*/_mapping',
       ]);
-      const fields = resolveSource(source.templates, 'mam_*');
+      const fields = resolveSource(source.templates, 'test_*');
       expect(fields.get('department')?.types).toEqual(['keyword']);
       expect(fields.get('role_level')?.pplTypes).toEqual(['int']);
-      expect(source.templates.some((template) => template.patterns.includes('auditd-*'))).toBe(true);
-      expect(storage.get<OpenSearchTemplateCache>(OPEN_SEARCH_TEMPLATE_CACHE_KEY)?.mappingIndexes).toEqual(['mam_*']);
+      expect(source.templates.some((template) => template.patterns.includes('test-audit-*'))).toBe(true);
+      expect(storage.get<OpenSearchTemplateCache>(OPEN_SEARCH_TEMPLATE_CACHE_KEY)?.mappingIndexes).toEqual(['test_*']);
       expect(JSON.stringify(storage.get<OpenSearchTemplateCache>(OPEN_SEARCH_TEMPLATE_CACHE_KEY)))
         .not.toContain('do-not-cache-this');
     } finally {
@@ -326,7 +326,7 @@ describe('OpenSearch template source', () => {
         ok: true,
         status: 200,
         json: async () => url.endsWith('/_mapping')
-          ? { mam_users_2026: { mappings: { properties: { id: { type: 'keyword' } } } } }
+          ? { test_users_2026: { mappings: { properties: { id: { type: 'keyword' } } } } }
           : templateResponse,
       };
     };
@@ -334,14 +334,14 @@ describe('OpenSearch template source', () => {
 
     try {
       await source.initialize();
-      await source.setMappingIndexPatterns(['mam_*']);
+      await source.setMappingIndexPatterns(['test_*']);
 
       expect(requests).toEqual([
         'https://search.example.test/proxy/_index_template',
         'https://search.example.test/proxy/_index_template',
-        'https://search.example.test/proxy/mam_*/_mapping',
+        'https://search.example.test/proxy/test_*/_mapping',
       ]);
-      expect(resolveSource(source.templates, 'mam_*').get('id')?.types).toEqual(['keyword']);
+      expect(resolveSource(source.templates, 'test_*').get('id')?.types).toEqual(['keyword']);
     } finally {
       source.dispose();
     }
@@ -352,7 +352,7 @@ describe('OpenSearch template source', () => {
     const requests: string[] = [];
     const logs: string[] = [];
     const mappingResponse = {
-      mam_users_2026: {
+      test_users_2026: {
         mappings: { properties: { department: { type: 'keyword' } } },
       },
     };
@@ -365,14 +365,14 @@ describe('OpenSearch template source', () => {
     const source = new OpenSearchTemplateSource(storage, prompts(logs), () => undefined, fetcher, () => 1_000_000);
 
     try {
-      await source.setMappingIndexPatterns(['mam_*']);
+      await source.setMappingIndexPatterns(['test_*']);
       await source.initialize();
 
       expect(requests).toEqual([
         'https://search.example.test/proxy/_index_template',
-        'https://search.example.test/proxy/mam_*/_mapping',
+        'https://search.example.test/proxy/test_*/_mapping',
       ]);
-      expect(resolveSource(source.templates, 'mam_*').get('department')?.types).toEqual(['keyword']);
+      expect(resolveSource(source.templates, 'test_*').get('department')?.types).toEqual(['keyword']);
       expect(logs.some((message) => message.includes('Continuing with configured live mapping patterns'))).toBe(true);
     } finally {
       source.dispose();
@@ -386,10 +386,10 @@ describe('OpenSearch template source', () => {
     expect(validateOpenSearchDomain('http://localhost:9200')).toBeUndefined();
     expect(openSearchIndexTemplateUrl('https://search.example.test/proxy/'))
       .toBe('https://search.example.test/proxy/_index_template');
-    expect(openSearchIndexTemplateUrl('https://search.example.test/proxy/', 'mam_*'))
-      .toBe('https://search.example.test/proxy/_index_template/mam_*');
-    expect(openSearchIndexMappingUrl('https://search.example.test/proxy/', 'mam_*'))
-      .toBe('https://search.example.test/proxy/mam_*/_mapping');
+    expect(openSearchIndexTemplateUrl('https://search.example.test/proxy/', 'test_*'))
+      .toBe('https://search.example.test/proxy/_index_template/test_*');
+    expect(openSearchIndexMappingUrl('https://search.example.test/proxy/', 'test_*'))
+      .toBe('https://search.example.test/proxy/test_*/_mapping');
   });
 
   it('keeps the previous template cache and stores no password when a refresh fails', async () => {
@@ -425,7 +425,7 @@ describe('OpenSearch template source', () => {
       const cached = storage.get<OpenSearchTemplateCache>(OPEN_SEARCH_TEMPLATE_CACHE_KEY)!;
       expect(cached.domain).toBe('https://new.example.test');
       expect(cached.username).toBe('new-reader');
-      expect(source.templates[0].name).toBe('auditd-template');
+      expect(source.templates[0].name).toBe('test-audit-template');
       expect(JSON.stringify(cached)).not.toContain('still-not-cached');
       expect(messages).toEqual(['OpenSearch returned HTTP 401 for the index-template request.']);
     } finally {

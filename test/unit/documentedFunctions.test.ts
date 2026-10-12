@@ -19,15 +19,15 @@ const PREVIOUSLY_MISSING = [
 ].flatMap((names) => names.split(' '));
 
 const templates = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: people }
+metadata: { name: test_people }
 spec:
-  indexPatterns: ['people']
+  indexPatterns: ['test_people']
   template:
     mappings:
       properties:
         age: { type: integer }
         name: { type: keyword }
-`, 'people.yaml');
+`, 'test_people.yaml');
 
 describe('documented OpenSearch functions', () => {
   it('covers all 97 names previously missing from the supplied reference list', () => {
@@ -40,13 +40,13 @@ describe('documented OpenSearch functions', () => {
       expect(documentation.docUrl, name).toMatch(new RegExp(`/3\\.5/sql-and-ppl/ppl/functions/[^/]+/#${name}$`));
       expect(documentation.hasSignature, name).toBe(true);
       const context = documentation.contexts.includes('where') ? 'where' : 'eval result =';
-      const query = `source=people | ${context} `;
+      const query = `source=test_people | ${context} `;
       expect(completionCandidates(query, query.length, templates).some((candidate) => candidate.kind === 'function' && candidate.label === name), name).toBe(true);
     }
   });
   it.each([...ADDITIONAL_MATH_FUNCTIONS, ...STATISTICAL_FUNCTIONS, ...ADDITIONAL_DATETIME_FUNCTIONS, ...ADDITIONAL_DATA_FUNCTIONS.filter(({ category }) => category !== 'Relevance')])('validates the researched example for $name', (entry) => {
     for (const example of entry.examples) {
-      const query = `source=people ${example} | fields result`;
+      const query = `source=test_people ${example} | fields result`;
       expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates), query).toEqual([]);
     }
     expect(functionDocumentation(entry.name)).toMatchObject({
@@ -64,13 +64,13 @@ describe('documented OpenSearch functions', () => {
     ['min(3, 2)', 'int'],
     ['max(3, 2)', 'int'],
   ])('infers %s as %s', (expression, resultType) => {
-    const query = `source=people | eval result = ${expression} | fields result`;
+    const query = `source=test_people | eval result = ${expression} | fields result`;
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
     expect(typedFieldScopeAt(query, templates, query.length)?.get('result')?.pplTypes).toEqual([resultType]);
   });
 
   it.each(['add(1)', 'atan2(1)', 'rand(1.5)', 'conv(true, 10, 16)', 'max(true, 1)'])('rejects invalid arguments in %s', (expression) => {
-    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=people | eval result = ${expression}`, templates);
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=test_people | eval result = ${expression}`, templates);
     expect(diagnostics.some(({ code }) => code === 'PPL014')).toBe(true);
   });
 
@@ -82,14 +82,14 @@ describe('documented OpenSearch functions', () => {
     ['localtime()', 'timestamp'],
     ["strftime(date('2020-01-01'), '%Y')", 'string'],
   ])('infers temporal expression %s as %s', (expression, resultType) => {
-    const query = `source=people | eval result = ${expression} | fields result`;
+    const query = `source=test_people | eval result = ${expression} | fields result`;
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
     expect(typedFieldScopeAt(query, templates, query.length)?.get('result')?.pplTypes).toEqual([resultType]);
   });
 
   it.each(["get_format(BADTYPE, 'USA')", "get_format(DATE, 'bad')", 'sysdate(7)', "week(date('2020-01-01'), 8)", "strftime('2020-01-01', '%Y')"])(
     'rejects invalid temporal arguments in %s', (expression) => {
-      const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=people | eval result = ${expression}`, templates);
+      const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=test_people | eval result = ${expression}`, templates);
       expect(diagnostics.some(({ code }) => code === 'PPL014')).toBe(true);
     },
   );
@@ -99,13 +99,13 @@ describe('documented OpenSearch functions', () => {
     "json_object('a', 1, 'b')", "json_object('a', 1, 2, 'value')",
     "json_set('{}', 'a', 1, 'b')", "json_extend('{}', 'a', 1, 2, 'value')",
   ])('rejects invalid data function arguments in %s', (expression) => {
-    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=people | eval result = ${expression}`, templates);
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=test_people | eval result = ${expression}`, templates);
     expect(diagnostics.some(({ code }) => code === 'PPL014')).toBe(true);
   });
 
   it.each(ADDITIONAL_DATA_FUNCTIONS.filter(({ category }) => category === 'Relevance'))('validates relevance examples for $name', (entry) => {
     for (const example of entry.examples) {
-      const query = `source=people ${example}`;
+      const query = `source=test_people ${example}`;
       expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates), query).toEqual([]);
     }
     expect(functionDocumentation(entry.name)?.docUrl).toBe(`https://docs.opensearch.org/3.5/sql-and-ppl/ppl/functions/relevance/#${entry.name}`);
@@ -116,7 +116,7 @@ describe('documented OpenSearch functions', () => {
     "query_string('text', default_operator='AND')",
     'match(age, 30, lenient=true)',
   ])('accepts relevance syntax %s', (expression) => {
-    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(`source=people | where ${expression}`, templates)).toEqual([]);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(`source=test_people | where ${expression}`, templates)).toEqual([]);
   });
 
   it.each([
@@ -124,17 +124,17 @@ describe('documented OpenSearch functions', () => {
     "match(name, 'text', lenient=1)", "query_string([], 'text')", "multi_match([missing], 'text')",
     "multi_match([name], 'text', tie_breaker=2)", "match_phrase(name, 'text', slop=true)",
   ])('rejects invalid relevance expression %s', (expression) => {
-    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=people | where ${expression}`, templates);
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(`source=test_people | where ${expression}`, templates);
     expect(diagnostics.some(({ severity }) => severity === 'error')).toBe(true);
   });
 
   it('ignores tostring format values for boolean input as documented', () => {
-    const query = "source=people | eval result = tostring(true, 'ignored') | fields result";
+    const query = "source=test_people | eval result = tostring(true, 'ignored') | fields result";
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)).toEqual([]);
   });
 
   it('validates negative integer constants in bounded function arguments', () => {
-    expect(new PplLinter({ openSearchVersion: '3.5' }).lint('source=people | eval result = sysdate(-1)', templates)
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint('source=test_people | eval result = sysdate(-1)', templates)
       .some(({ code }) => code === 'PPL014')).toBe(true);
   });
 });

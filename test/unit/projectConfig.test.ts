@@ -35,7 +35,7 @@ describe('shared PPL config', () => {
       "version": 1,
       "pplLinter": {
         "openSearchVersion": "3.6",
-        "includedIndexes": ["mam_*"] ,
+        "includedIndexes": ["test_*"] ,
         "standalone": { "fileExtensions": [".pplx"] },
         "embedded": [{
           "id": "custom-yaml",
@@ -50,7 +50,7 @@ describe('shared PPL config', () => {
     const config = mergePplLinterConfig(parsed.pplLinter);
 
     expect(config.openSearchVersion).toBe('3.6');
-    expect(config.includedIndexes).toEqual(['mam_*']);
+    expect(config.includedIndexes).toEqual(['test_*']);
     expect(config.standalone).toEqual({
       fileExtensions: ['.pplx'],
       languageIds: ['ppl'],

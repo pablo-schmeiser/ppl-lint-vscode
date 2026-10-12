@@ -11,6 +11,8 @@ import {
   InExpressionNode,
   JoinStageNode,
   LiteralNode,
+  NamedArgumentNode,
+  RelevanceFieldListNode,
   LookupStageNode,
   OptionStageNode,
   PipelineNode,
@@ -37,6 +39,7 @@ import {
   createHeadStageNode,
   createIdentifierNode,
   createLiteralNode,
+  createLambdaExpressionNode,
   createPipelineNode,
   createRenameStageNode,
   createSortStageNode,
@@ -46,6 +49,7 @@ import {
   createWhereStageNode,
 } from '../ast/nodes';
 import { tokenize } from '../lexer/tokenizer';
+import { getFunctionSignature } from '../catalog/functionSignatures';
 
 export class PplParser {
   private tokens: Token[] = [];
@@ -873,7 +877,33 @@ export class PplParser {
   // ==========================================
 
   public parseExpression(): ExpressionNode {
+    const lambda = this.parseLambdaExpression();
+    if (lambda) return lambda;
     return this.parseLogicalOr();
+  }
+
+  private parseLambdaExpression(): ExpressionNode | null {
+    let cursor = this.current;
+    const parenthesized = this.tokens[cursor]?.type === TokenType.LPAREN;
+    if (parenthesized) cursor++;
+    const parameterTokens: Token[] = [];
+    while (this.tokens[cursor] && this.isFieldIdentifierToken(this.tokens[cursor], true)) {
+      parameterTokens.push(this.tokens[cursor++]);
+      if (!parenthesized || this.tokens[cursor]?.type !== TokenType.COMMA) break;
+      cursor++;
+      if (!this.tokens[cursor] || !this.isFieldIdentifierToken(this.tokens[cursor], true)) return null;
+    }
+    if (parameterTokens.length === 0) return null;
+    if (parenthesized) {
+      if (this.tokens[cursor]?.type !== TokenType.RPAREN) return null;
+      cursor++;
+    }
+    if (this.tokens[cursor]?.type !== TokenType.ARROW) return null;
+    const start = this.peek().span.start;
+    this.current = cursor + 1;
+    const parameters = parameterTokens.map((token) => createIdentifierNode(token.value, this.isBacktickQuoted(token), token.span));
+    const body = this.parseExpression();
+    return createLambdaExpressionNode(parameters, body, { start, end: body.span.end });
   }
 
   private parseLogicalOr(): ExpressionNode {
@@ -890,16 +920,29 @@ export class PplParser {
   }
 
   private parseLogicalAnd(): ExpressionNode {
-    let expr = this.parseEquality();
+    let expr = this.parseLogicalNot();
 
     while (this.match(TokenType.AND)) {
       const op = this.previous();
-      const right = this.parseEquality();
+      const right = this.parseLogicalNot();
       const span: Span = { start: expr.span.start, end: right.span.end };
       expr = createBinaryExpressionNode(expr, op.value, right, span);
     }
 
     return expr;
+  }
+
+  private parseLogicalNot(): ExpressionNode {
+    if (this.match(TokenType.NOT)) {
+      const op = this.previous();
+      const right = this.parseLogicalNot();
+      return createUnaryExpressionNode(op.value, right, {
+        start: op.span.start,
+        end: right.span.end,
+      });
+    }
+
+    return this.parseEquality();
   }
 
   private parseEquality(): ExpressionNode {
@@ -999,7 +1042,7 @@ export class PplParser {
   }
 
   private parseUnary(): ExpressionNode {
-    if (this.match(TokenType.NOT) || this.match(TokenType.MINUS) || this.match(TokenType.PLUS)) {
+    if (this.match(TokenType.MINUS) || this.match(TokenType.PLUS)) {
       const op = this.previous();
       const right = this.parseUnary();
       const span: Span = { start: op.span.start, end: right.span.end };
@@ -1135,6 +1178,7 @@ export class PplParser {
   }
 
   private parseFunctionArguments(calleeToken: Token): ExpressionNode[] {
+    if (getFunctionSignature(calleeToken.value)?.special === 'relevance') return this.parseRelevanceArguments();
     if (calleeToken.value.toLowerCase() === 'position') {
       const substring = this.parseComparison();
       if (this.match(TokenType.IN) || this.match(TokenType.COMMA)) {
@@ -1165,6 +1209,61 @@ export class PplParser {
       } while (this.match(TokenType.COMMA));
     }
     return args;
+  }
+
+  private parseRelevanceArguments(): ExpressionNode[] {
+    const args: ExpressionNode[] = [];
+    let hasOptions = false;
+    if (this.check(TokenType.RPAREN)) return args;
+    do {
+      if (this.check(TokenType.LBRACKET)) {
+        if (args.length !== 0) this.recordError('Relevance field lists must be the first argument.', this.peek().span);
+        args.push(this.parseRelevanceFieldList());
+      } else if (this.tokens[this.current + 1]?.type === TokenType.ASSIGN) {
+        hasOptions = true;
+        const option = this.advance();
+        this.advance();
+        let value: ExpressionNode;
+        if (this.isFieldIdentifierToken(this.peek()) && [TokenType.COMMA, TokenType.RPAREN].includes(this.tokens[this.current + 1]?.type)) {
+          const token = this.advance();
+          value = createLiteralNode(token.value, token.value, token.span);
+        } else {
+          value = this.parseExpression();
+        }
+        const argument: NamedArgumentNode = { type: 'NamedArgument', name: option.value, value, span: { start: option.span.start, end: value.span.end } };
+        args.push(argument);
+      } else {
+        if (hasOptions) this.recordError('Positional arguments must precede relevance options.', this.peek().span);
+        args.push(this.parseExpression());
+      }
+    } while (this.match(TokenType.COMMA));
+    return args;
+  }
+
+  private parseRelevanceFieldList(): ExpressionNode {
+    const start = this.advance();
+    const fields: RelevanceFieldListNode['fields'] = [];
+    if (!this.check(TokenType.RBRACKET)) {
+      do {
+        const token = this.peek();
+        if (token.type !== TokenType.STRING_LITERAL && !this.isFieldIdentifierToken(token)) {
+          return this.recordError('Expected a field name in relevance field list. Wildcards must be quoted.', token.span);
+        }
+        this.advance();
+        const field = createIdentifierNode(token.value, this.isBacktickQuoted(token), token.span);
+        let boost: LiteralNode | undefined;
+        const caret = this.match(TokenType.CARET);
+        if (caret || this.check(TokenType.NUMBER_LITERAL)) {
+          if (!this.check(TokenType.NUMBER_LITERAL)) return this.recordError('Expected numeric field boost.', this.peek().span);
+          const value = this.advance();
+          boost = createLiteralNode(Number(value.value), value.value, value.span);
+        }
+        fields.push({ field, boost });
+      } while (this.match(TokenType.COMMA));
+    }
+    if (!this.match(TokenType.RBRACKET)) return this.recordError("Unclosed relevance field list: expected ']'.", this.peek().span);
+    const list: RelevanceFieldListNode = { type: 'RelevanceFieldList', fields, span: { start: start.span.start, end: this.previous().span.end } };
+    return list;
   }
 
   // ==========================================

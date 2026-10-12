@@ -128,13 +128,24 @@ export class Tokenizer {
 
       if (char === '-') {
         this.advance();
-        this.addToken(TokenType.MINUS, '-', startPos, this.currentPos());
+        if (this.peek() === '>') {
+          this.advance();
+          this.addToken(TokenType.ARROW, '->', startPos, this.currentPos());
+        } else {
+          this.addToken(TokenType.MINUS, '-', startPos, this.currentPos());
+        }
         continue;
       }
 
       if (char === '*') {
         this.advance();
         this.addToken(TokenType.STAR, '*', startPos, this.currentPos());
+        continue;
+      }
+
+      if (char === '^') {
+        this.advance();
+        this.addToken(TokenType.CARET, '^', startPos, this.currentPos());
         continue;
       }
 

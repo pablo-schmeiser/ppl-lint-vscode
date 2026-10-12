@@ -57,6 +57,8 @@ export enum TokenType {
   GTE = 'GTE',                   // >=
   PLUS = 'PLUS',                 // +
   MINUS = 'MINUS',               // -
+  ARROW = 'ARROW',
+  CARET = 'CARET',
   STAR = 'STAR',                 // *
   SLASH = 'SLASH',               // /
   PERCENT = 'PERCENT',           // %
@@ -111,6 +113,9 @@ export type ASTNodeType =
   | 'InExpression'
   | 'UnaryExpression'
   | 'FunctionCall'
+  | 'LambdaExpression'
+  | 'NamedArgument'
+  | 'RelevanceFieldList'
   | 'Identifier'
   | 'Literal'
   | 'ErrorNode';
@@ -133,6 +138,23 @@ export interface LiteralNode extends BaseASTNode {
 }
 
 export interface ExpressionNode extends BaseASTNode {}
+
+export interface LambdaExpressionNode extends ExpressionNode {
+  type: 'LambdaExpression';
+  parameters: IdentifierNode[];
+  body: ExpressionNode;
+}
+
+export interface NamedArgumentNode extends ExpressionNode {
+  type: 'NamedArgument';
+  name: string;
+  value: ExpressionNode;
+}
+
+export interface RelevanceFieldListNode extends ExpressionNode {
+  type: 'RelevanceFieldList';
+  fields: Array<{ field: IdentifierNode; boost?: LiteralNode }>;
+}
 
 export interface BinaryExpressionNode extends ExpressionNode {
   type: 'BinaryExpression';

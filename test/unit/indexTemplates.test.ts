@@ -12,13 +12,13 @@ kind: OpensearchIndexTemplate
 metadata:
   name: ${name}
 spec:
-  indexPatterns: ["indices-${name}-*"]
+  indexPatterns: ["test-indices-${name}-*"]
   template:
     settings:
       plugins.index_state_management:
-        rollover_alias: auditd-${name}-writer
+        rollover_alias: test-audit-${name}-writer
     aliases:
-      auditd-reader: {}
+      test-reader: {}
     mappings:
       dynamic: false
       properties:
@@ -41,7 +41,7 @@ describe('workspace index templates', () => {
       ...parseIndexTemplates(template('one', 'long'), 'one.yaml'),
       ...parseIndexTemplates(template('two', 'keyword'), 'two.yaml'),
     ];
-    const fields = resolveSource(templates, 'auditd-reader');
+    const fields = resolveSource(templates, 'test-reader');
 
     expect(fields.get('host.name')?.types).toEqual(['keyword']);
     expect(fields.get('host')?.pplTypes).toEqual(['struct']);
@@ -50,22 +50,22 @@ describe('workspace index templates', () => {
     expect(fields.get('ticket')?.pplTypes).toEqual(['string']);
     expect(fields.get('event.sequence')?.types).toEqual(['long', 'keyword']);
     expect(fields.get('event.sequence')?.templates).toEqual(['one', 'two']);
-    expect(resolveSource(templates, 'indices-one-2026').has('host.name')).toBe(true);
-    expect(resolveSource(templates, 'auditd-one-writer').has('host.name')).toBe(true);
+    expect(resolveSource(templates, 'test-indices-one-2026').has('host.name')).toBe(true);
+    expect(resolveSource(templates, 'test-audit-one-writer').has('host.name')).toBe(true);
     expect(resolveSource(templates, 'unknown').size).toBe(0);
-    expect(resolveSource([], 'auditd-reader').size).toBe(0);
-    expect(resolveSource(templates, 'indices-*').get('event.sequence')?.types).toEqual(['long', 'keyword']);
+    expect(resolveSource([], 'test-reader').size).toBe(0);
+    expect(resolveSource(templates, 'test-indices-*').get('event.sequence')?.types).toEqual(['long', 'keyword']);
   });
 
   it('parses native OpenSearch index-template responses for patterns, aliases, and mapped fields', () => {
     const templates = parseOpenSearchIndexTemplates({
       index_templates: [{
-        name: 'auditd-template',
+        name: 'test-audit-template',
         index_template: {
-          index_patterns: ['auditd-*'],
+          index_patterns: ['test-audit-*'],
           template: {
-            aliases: { 'auditd-reader': {} },
-            settings: { 'plugins.index_state_management': { rollover_alias: 'auditd-writer' } },
+            aliases: { 'test-reader': {} },
+            settings: { 'plugins.index_state_management': { rollover_alias: 'test-audit-writer' } },
             mappings: {
               properties: {
                 host: { properties: { name: { type: 'keyword' } } },
@@ -78,15 +78,15 @@ describe('workspace index templates', () => {
     });
 
     expect(templates).toHaveLength(1);
-    expect(templates[0].patterns).toEqual(['auditd-*']);
-    expect(templates[0].aliases).toEqual(['auditd-reader', 'auditd-writer']);
-    expect(resolveSource(templates, 'auditd-2026').get('host.name')?.types).toEqual(['keyword']);
-    expect(resolveSource(templates, 'auditd-reader').get('message.keyword')?.types).toEqual(['keyword']);
+    expect(templates[0].patterns).toEqual(['test-audit-*']);
+    expect(templates[0].aliases).toEqual(['test-reader', 'test-audit-writer']);
+    expect(resolveSource(templates, 'test-audit-2026').get('host.name')?.types).toEqual(['keyword']);
+    expect(resolveSource(templates, 'test-reader').get('message.keyword')?.types).toEqual(['keyword']);
   });
 
   it('parses live index mappings and resolves them by configured wildcard or selector alias', () => {
     const templates = parseOpenSearchIndexMappings({
-      'mam_users_2026': {
+      'test_users_2026': {
         mappings: {
           properties: {
             id: { type: 'keyword' },
@@ -94,22 +94,22 @@ describe('workspace index templates', () => {
           },
         },
       },
-    }, 'mam_*');
+    }, 'test_*');
 
     expect(templates).toHaveLength(1);
-    expect(resolveSource(templates, 'mam_*').get('id')?.types).toEqual(['keyword']);
-    expect(resolveSource(templates, 'mam_users_*').get('profile.display_name')?.types).toEqual(['text']);
+    expect(resolveSource(templates, 'test_*').get('id')?.types).toEqual(['keyword']);
+    expect(resolveSource(templates, 'test_users_*').get('profile.display_name')?.types).toEqual(['text']);
   });
 
   it('limits source resolution to exact names and configured wildcard patterns', () => {
     const templates = parseIndexTemplates(template('one', 'long'), 'one.yaml');
 
-    expect(isSourceIncluded('indices-one-2026', ['indices-one-*'])).toBe(true);
-    expect(isSourceIncluded('auditd-reader', ['auditd-reader'])).toBe(true);
-    expect(isSourceIncluded('indices-one-*', ['indices-one-*'])).toBe(true);
-    expect(isSourceIncluded('indices-one-*', ['indices-one-2026'])).toBe(false);
-    expect(isSourceIncluded('indices-two-2026', ['indices-one-*'])).toBe(false);
-    expect(resolveSource(templates, 'indices-one-2026', ['indices-one-*']).has('host.name')).toBe(true);
-    expect(resolveSource(templates, 'indices-two-2026', ['indices-one-*'])).toEqual(new Map());
+    expect(isSourceIncluded('test-indices-one-2026', ['test-indices-one-*'])).toBe(true);
+    expect(isSourceIncluded('test-reader', ['test-reader'])).toBe(true);
+    expect(isSourceIncluded('test-indices-one-*', ['test-indices-one-*'])).toBe(true);
+    expect(isSourceIncluded('test-indices-one-*', ['test-indices-one-2026'])).toBe(false);
+    expect(isSourceIncluded('test-indices-two-2026', ['test-indices-one-*'])).toBe(false);
+    expect(resolveSource(templates, 'test-indices-one-2026', ['test-indices-one-*']).has('host.name')).toBe(true);
+    expect(resolveSource(templates, 'test-indices-two-2026', ['test-indices-one-*'])).toEqual(new Map());
   });
 });

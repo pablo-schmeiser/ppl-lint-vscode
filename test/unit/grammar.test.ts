@@ -3,6 +3,9 @@ import * as path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createOnigScanner, createOnigString, loadWASM } from 'vscode-oniguruma';
 import { Registry, parseRawGrammar, type IGrammar } from 'vscode-textmate';
+import { ADDITIONAL_MATH_FUNCTIONS } from '../../src/core/catalog/additionalMathFunctions';
+import { ADDITIONAL_DATETIME_FUNCTIONS } from '../../src/core/catalog/additionalDatetimeFunctions';
+import { ADDITIONAL_DATA_FUNCTIONS } from '../../src/core/catalog/additionalDataFunctions';
 
 let grammar: IGrammar;
 
@@ -29,9 +32,30 @@ function scopesAt(line: string, needle: string, occurrence = 0): string[] {
 }
 
 describe('PPL TextMate grammar', () => {
+  it.each([...ADDITIONAL_MATH_FUNCTIONS, ...ADDITIONAL_DATETIME_FUNCTIONS, ...ADDITIONAL_DATA_FUNCTIONS])(
+    'highlights researched function $name but not strings or field names', ({ name }) => {
+      expect(scopesAt(`| eval result = ${name}()`, `${name}(`)).toContain('support.function.ppl');
+      expect(scopesAt(`| fields \`${name}\``, `\`${name}\``)).not.toContain('support.function.ppl');
+      expect(scopesAt(`| eval result = '${name}()'`, `${name}(`)).toContain('string.quoted.single.ppl');
+    },
+  );
+
+  it.each([
+    'array', 'array_length', 'forall', 'exists', 'filter', 'transform', 'reduce',
+    'mvjoin', 'mvappend', 'split', 'mvdedup', 'mvfind', 'mvindex', 'mvmap', 'mvzip',
+  ])('highlights collection function %s without coloring a field of that name', (name) => {
+    expect(scopesAt(`| eval result = ${name}()`, name)).toContain('support.function.ppl');
+    expect(scopesAt(`| fields ${name}`, name)).not.toContain('support.function.ppl');
+  });
+
+  it('highlights a lambda arrow as one operator', () => {
+    expect(scopesAt('| eval result = transform(array(1), element -> element + 1)', '->'))
+      .toContain('keyword.operator.lambda.ppl');
+  });
+
   it('colors commands, clauses, functions, options, and monitor fields', () => {
-    expect(scopesAt('| lookup users user as name replace holiday', 'lookup')).toContain('keyword.control.ppl');
-    expect(scopesAt('| lookup users user as name replace holiday', 'replace')).toContain('keyword.other.ppl');
+    expect(scopesAt('| lookup test_users user as name replace holiday', 'lookup')).toContain('keyword.control.ppl');
+    expect(scopesAt('| lookup test_users user as name replace holiday', 'replace')).toContain('keyword.other.ppl');
     expect(scopesAt('| rex field=message "(?<user>\\S+)"', 'rex')).toContain('keyword.control.ppl');
     expect(scopesAt('| rex field=message "(?<user>\\S+)"', 'field')).toContain('variable.parameter.ppl');
     expect(scopesAt('| streamstats window=5 distinct_count(user) by host', 'streamstats')).toContain('keyword.control.ppl');
@@ -52,7 +76,7 @@ describe('PPL TextMate grammar', () => {
   });
 
   it('scopes nested PPL within a join subquery without coloring quoted pipes', () => {
-    const query = '| join left=l right=r [source=workers | where regexp_match(message, "join | source") | head 5]';
+    const query = '| join left=l right=r [source=test_workers | where regexp_match(message, "join | source") | head 5]';
     expect(scopesAt(query, 'source=', 0)).toContain('keyword.control.ppl');
     expect(scopesAt(query, 'where')).toContain('keyword.control.ppl');
     expect(scopesAt(query, 'regexp_match')).toContain('support.function.ppl');
@@ -61,12 +85,12 @@ describe('PPL TextMate grammar', () => {
   });
 
   const documentedForms: Array<[string, string, string]> = [
-    ['source = accounts', 'source', 'keyword.control.ppl'],
-    ['| lookup workers id as employee replace department as dept', 'lookup', 'keyword.control.ppl'],
-    ['| lookup workers id append department', 'append', 'keyword.other.ppl'],
-    ['| join type=outer overwrite=false max=0 id [source=workers | head 5]', 'type', 'variable.parameter.ppl'],
-    ['| join type=outer overwrite=false max=0 id [source=workers | head 5]', 'max', 'variable.parameter.ppl'],
-    ['| left semi join left=l right=r on l.id=r.id workers', 'semi', 'keyword.other.ppl'],
+    ['source = test_accounts', 'source', 'keyword.control.ppl'],
+    ['| lookup test_workers id as employee replace department as dept', 'lookup', 'keyword.control.ppl'],
+    ['| lookup test_workers id append department', 'append', 'keyword.other.ppl'],
+    ['| join type=outer overwrite=false max=0 id [source=test_workers | head 5]', 'type', 'variable.parameter.ppl'],
+    ['| join type=outer overwrite=false max=0 id [source=test_workers | head 5]', 'max', 'variable.parameter.ppl'],
+    ['| left semi join left=l right=r on l.id=r.id test_workers', 'semi', 'keyword.other.ppl'],
     ['| stats bucket_nullable=false count() by span(@timestamp, 1h)', 'bucket_nullable', 'variable.parameter.ppl'],
     ['| stats count(eval(age > 30)) as mature', 'count', 'support.function.ppl'],
     ['| stats perc99.5(age), p50(age)', 'perc99.5', 'support.function.ppl'],

@@ -11,6 +11,7 @@ import {
   HeadStageNode,
   IdentifierNode,
   LiteralNode,
+  LambdaExpressionNode,
   PipelineNode,
   PipeStageNode,
   RenameStageNode,
@@ -197,6 +198,10 @@ export function createFunctionCallNode(
     arguments: args,
     span,
   };
+}
+
+export function createLambdaExpressionNode(parameters: IdentifierNode[], body: ExpressionNode, span: Span): LambdaExpressionNode {
+  return { type: 'LambdaExpression', parameters, body, span };
 }
 
 export function createIdentifierNode(

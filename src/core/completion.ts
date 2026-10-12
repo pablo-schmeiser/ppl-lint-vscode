@@ -90,6 +90,7 @@ function isWordToken(token: Token): boolean {
     TokenType.PIPE, TokenType.ASSIGN, TokenType.EQUALS, TokenType.NOT_EQUALS,
     TokenType.LT, TokenType.LTE, TokenType.GT, TokenType.GTE, TokenType.PLUS,
     TokenType.MINUS, TokenType.STAR, TokenType.SLASH, TokenType.PERCENT,
+    TokenType.ARROW, TokenType.CARET,
     TokenType.COMMA, TokenType.LPAREN, TokenType.RPAREN, TokenType.LBRACKET,
     TokenType.RBRACKET, TokenType.STRING_LITERAL, TokenType.NUMBER_LITERAL,
     TokenType.BOOLEAN_LITERAL, TokenType.NULL_LITERAL, TokenType.EOF,
@@ -206,6 +207,10 @@ function cursorContext(query: string, offset: number): CursorContext | undefined
 
 function constraintAccepts(constraint: TypeConstraint | undefined, type: PplType): boolean {
   if (!constraint || constraint === 'any') return true;
+  if (constraint === 'integer') return ['tinyint', 'smallint', 'int', 'bigint'].includes(type);
+  if (constraint === 'numericOrString') return NUMERIC_TYPES.has(type) || type === 'string';
+  if (constraint === 'strftimeInput') return NUMERIC_TYPES.has(type) || type === 'date' || type === 'timestamp';
+  if (constraint === 'temporalOrNumeric') return NUMERIC_TYPES.has(type) || TEMPORAL_TYPES.has(type) || type === 'string';
   if (constraint === 'numeric') return NUMERIC_TYPES.has(type) || type === 'string';
   if (constraint === 'temporal') return TEMPORAL_TYPES.has(type) || type === 'string';
   if (constraint === 'stringLike') return type === 'string' || type === 'ip';
@@ -215,6 +220,11 @@ function constraintAccepts(constraint: TypeConstraint | undefined, type: PplType
 
 function functionReturnsConstraint(signature: FunctionSignature, constraint?: TypeConstraint): boolean {
   if (!constraint || constraint === 'any') return true;
+  if (['integer', 'numericOrString', 'strftimeInput', 'temporalOrNumeric'].includes(constraint)) {
+    if (constraintAccepts(constraint, signature.returnType as PplType)) return true;
+    if (signature.returnType === 'widerNumeric') return constraint !== 'integer' || signature.arguments.every((argument) => argument === 'integer');
+    return ['sameAsFirst', 'common', 'selectedValue', 'reduce', 'unknown'].includes(signature.returnType);
+  }
   if (signature.returnType === 'if' || signature.returnType === 'case') return true;
   if (signature.returnType === 'fromUnixTime') return ['temporal', 'stringLike', 'string'].includes(constraint);
   if (signature.returnType === 'addDate') return constraint === 'temporal';
@@ -533,8 +543,10 @@ export function completionCandidates(
 
   const constraint = functionArgumentConstraint(context.call, context.command);
   if (context.call?.name && getFunctionSignature(context.call.name, context.command)?.constantArguments?.includes(context.call.argumentIndex)) {
-    return TIMESTAMP_UNITS.filter((unit) => unit.toLowerCase().startsWith(context.prefix.toLowerCase()))
-      .map((label) => ({ label, kind: 'constant' as const, detail: 'Interval unit', insertText: label }));
+    const signature = getFunctionSignature(context.call.name, context.command)!;
+    const constants = signature.allowedValues?.[context.call.argumentIndex]?.map(String) ?? TIMESTAMP_UNITS;
+    return constants.filter((value) => value.toLowerCase().startsWith(context.prefix.toLowerCase()))
+      .map((label) => ({ label, kind: 'constant' as const, detail: 'Function constant', insertText: label }));
   }
   if (context.whereContinuation) return whereContinuationCandidates(context.prefix);
 

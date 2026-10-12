@@ -1,4 +1,4 @@
-source = accounts
+source = test_accounts
 | where age > 30 AND balance >= 1000.0
 | fields + account_number, firstname, lastname, balance, state
 | eval status_tier = if(balance > 50000, 'VIP', 'Standard')

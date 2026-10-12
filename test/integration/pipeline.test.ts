@@ -87,7 +87,7 @@ describe('End-to-End Pipeline Integration', () => {
 
     expect(queries).toHaveLength(1);
     const q = queries[0];
-    expect(q.rawText).toBe('source=microservice_logs | where status >= 500 | stats count() by service_name');
+    expect(q.rawText).toBe('source=test_microservice_logs | where status >= 500 | stats count() by service_name');
 
     const diags = linter.lint(q.rawText);
     expect(diags).toHaveLength(0);
@@ -96,7 +96,7 @@ describe('End-to-End Pipeline Integration', () => {
   it('handles block scalar chomp indicators (|- and |+) accurately', () => {
     const yamlWithChomp = `rule:
   query: |-
-    source=logs
+    source=test_logs
     | stat count()
 `;
     const queries = extractQueries(yamlWithChomp, 'yaml', ['rule.query'], false);

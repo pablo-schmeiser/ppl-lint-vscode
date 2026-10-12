@@ -8,7 +8,7 @@ describe('Performance & Stress Benchmarking', () => {
   it('lints 10 embedded queries in a 500-line YAML file within 50ms', () => {
     let yaml = 'version: 1\ndescription: Performance Benchmark Test\nrules:\n';
     for (let i = 0; i < 10; i++) {
-      yaml += `  rule_${i}:\n    id: rule_${i}\n    query: |\n      source=index_${i}\n      | where status == 200 AND response_time < 500\n      | stats count() by host\n`;
+      yaml += `  rule_${i}:\n    id: rule_${i}\n    query: |\n      source=test_index_${i}\n      | where status == 200 AND response_time < 500\n      | stats count() by host\n`;
     }
     // Add extra padding lines to exceed 500 lines
     for (let j = 0; j < 450; j++) {
@@ -30,7 +30,7 @@ describe('Performance & Stress Benchmarking', () => {
   });
 
   it('parses and lints long pipeline with 25 pipe stages without stack overflow', () => {
-    let query = 'source = large_telemetry_dataset';
+    let query = 'source = test_large_telemetry_dataset';
     for (let i = 0; i < 25; i++) {
       if (i % 2 === 0) {
         query += ` | where metric_${i} > ${i * 10}`;

@@ -109,6 +109,14 @@
       "patterns": [
         {
           "name": "support.function.ppl",
+          "match": "(?i)\\b(add|subtract|multiply|divide|acos|asin|atan|atan2|conv|cos|cosh|cot|crc32|degrees|e|expm1|mod|modulus|pi|radians|rand|sign|signum|sin|sinh|rint|addtime|curdate|current_date|current_time|curtime|datetime|datediff|dayofmonth|day_of_month|dayofweek|day_of_week|dayofyear|day_of_year|from_days|get_format|hour_of_day|last_day|localtimestamp|localtime|makedate|maketime|microsecond|minute_of_hour|month_of_year|monthname|period_add|period_diff|quarter|sec_to_time|second_of_minute|strftime|str_to_date|subdate|subtime|sysdate|time|time_format|time_to_sec|timediff|to_days|to_seconds|utc_date|utc_time|utc_timestamp|week|weekday|week_of_year|yearweek|tostring|tonumber|sha2|locate|reverse|geoip|json|json_valid|json_object|json_array|json_array_length|json_extract|json_delete|json_set|json_append|json_extend|json_keys|match|match_phrase|match_phrase_prefix|multi_match|simple_query_string|match_bool_prefix|query_string)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.ppl",
+          "match": "(?i)\\b(array|array_length|forall|exists|filter|transform|reduce|mvjoin|mvappend|split|mvdedup|mvfind|mvindex|mvmap|mvzip)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.ppl",
           "match": "(?i)\\b(?:perc|p)\\d+(?:\\.\\d+)?(?=\\s*\\()"
         },
         {
@@ -119,6 +127,14 @@
     },
     "operators": {
       "patterns": [
+        {
+          "name": "keyword.operator.boost.ppl",
+          "match": "\\^"
+        },
+        {
+          "name": "keyword.operator.lambda.ppl",
+          "match": "->"
+        },
         {
           "name": "keyword.operator.comparison.ppl",
           "match": "(==|!=|<>|<=|>=|<|>|=)"

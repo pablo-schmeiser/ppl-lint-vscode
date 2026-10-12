@@ -4,6 +4,7 @@ import { normalizeOpenSearchTypes, PplType } from './pplTypes';
 export interface KnownField {
   types: string[];
   pplTypes?: PplType[];
+  arrayElementType?: PplType;
   templates: string[];
 }
 

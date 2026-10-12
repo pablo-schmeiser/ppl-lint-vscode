@@ -6,11 +6,11 @@ import { typedFieldScopeAt } from '../../src/core/schemaTypeChecker';
 import { EvalStageNode, LookupStageNode } from '../../src/types';
 
 const templates = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: auditd }
+metadata: { name: test-audit }
 spec:
-  indexPatterns: ['auditd-*']
+  indexPatterns: ['test-audit-*']
   template:
-    aliases: { auditd-reader: {} }
+    aliases: { test-reader: {} }
     mappings:
       dynamic: false
       properties:
@@ -23,14 +23,15 @@ spec:
           properties:
             name: { type: keyword }
         execve_command: { type: keyword }
-`, 'auditd.yaml');
+        callerIpAddress: { type: ip }
+`, 'test-audit.yaml');
 
 const lookupTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: workers }
+metadata: { name: test_workers }
 spec:
-  indexPatterns: ['workers-*']
+  indexPatterns: ['test_workers-*']
   template:
-    aliases: { workers-reader: {} }
+    aliases: { test_workers-reader: {} }
     mappings:
       properties:
         event:
@@ -39,11 +40,86 @@ spec:
         department: { type: keyword }
         city: { type: long }
         user: { type: keyword }
-`, 'workers.yaml');
+`, 'test_workers.yaml');
 
 describe('schema-aware PPL type checking', () => {
+  it.each([
+    ['if(true, array(@timestamp), array(@timestamp))', [2, 3]],
+    ['if(true, array(@timestamp), null)', [2]],
+    ['if(true, null, array(@timestamp))', [3]],
+  ])('rejects array branches in %s', (expression, argumentNumbers) => {
+    const timestampTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
+metadata: { name: test-audit }
+spec:
+  indexPatterns: ['test-audit-*']
+  template:
+    aliases: { test-reader: {} }
+    mappings:
+      properties:
+        '@timestamp': { type: date }
+`, 'timestamp.yaml');
+    const query = `source=test-reader
+      | eval picked = ${expression}
+      | eval item = mvindex(picked, 0)
+      | eval invalid = length(item)`;
+    expect(parsePpl(query).syntaxErrors).toEqual([]);
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, timestampTemplates)
+      .filter(({ code }) => code === 'PPL014');
+    expect(errors).toHaveLength(argumentNumbers.length);
+    expect(errors.map(({ message }) => message)).toEqual(argumentNumbers.map((argument) =>
+      `Function 'if' argument ${argument} requires nonArray, got array.`
+    ));
+  });
+
+  it('negates the full LIKE predicate after AND', () => {
+    const query = "source=test-reader | where (LOWER(execve_command) LIKE '%password%' OR LOWER(execve_command) LIKE '%passwd%') AND NOT execve_command LIKE '%/etc/naemon/cluster_config.ini%'";
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
+    expect(diagnostics.filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('accepts IP and string equality comparisons in either operand order', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const operator of ['=', '==', '!=', '<>']) {
+      for (const address of ['91.179.2.196', '2001:db8::1']) {
+        for (const comparison of [
+          `callerIpAddress ${operator} '${address}'`,
+          `'${address}' ${operator} callerIpAddress`,
+        ]) {
+          const query = `source=test-reader | where ${comparison}`;
+          expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error'), query).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it('still rejects IP equality comparisons with numeric and boolean operands', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const value of ['1', 'true']) {
+      const query = `source=test-reader | where callerIpAddress = ${value}`;
+      expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'), query).toHaveLength(1);
+    }
+  });
+
+  it.each([
+    ['event.sequence = 1.5', 0],
+    ["event.sequence = '12'", 0],
+    ["'12' < event.sequence", 0],
+    ["event.sequence = 'not_numeric'", 1],
+    ['event.sequence = event.enabled', 1],
+    ["callerIpAddress > '91.179.2.196'", 1],
+    ['event.sequence in (1, 1.5, null)', 0],
+    ["event.type in ('login', null)", 0],
+    ["event.sequence in ('12')", 1],
+    ["callerIpAddress in ('91.179.2.196')", 1],
+  ])('preserves comparison coercion rules for %s', (condition, errorCount) => {
+    const query = `source=test-reader | where ${condition}`;
+    const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
+    expect(diagnostics.filter(({ severity }) => severity === 'error')).toHaveLength(errorCount);
+    expect(diagnostics.filter(({ code }) => code === 'PPL014')).toHaveLength(errorCount);
+  });
+
   it('reports an undeclared field at its identifier while keeping schema-free linting unchanged', () => {
-    const query = 'source=auditd-reader | where event.missing == 1';
+    const query = 'source=test-reader | where event.missing == 1';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
 
     const diagnostics = linter.lint(query, templates);
@@ -57,7 +133,7 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('reports an unmatched source once without cascading field errors when schema checking is enabled', () => {
-    const query = 'source=unknown-index | where missing.field == 1';
+    const query = 'source=test-unknown-index | where missing.field == 1';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, [], true);
 
     expect(diagnostics.filter((diagnostic) => diagnostic.code === 'PPL011')).toHaveLength(1);
@@ -65,9 +141,9 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('restricts schema checks to configured index names and patterns', () => {
-    const allowedQuery = 'source=auditd-2026 | where event.sequence > 0';
-    const excludedQuery = 'source=other-2026 | where event.sequence > 0';
-    const linter = new PplLinter({ openSearchVersion: '3.5', includedIndexes: ['auditd-*'] });
+    const allowedQuery = 'source=test-audit-2026 | where event.sequence > 0';
+    const excludedQuery = 'source=test-other-2026 | where event.sequence > 0';
+    const linter = new PplLinter({ openSearchVersion: '3.5', includedIndexes: ['test-audit-*'] });
 
     expect(linter.lint(allowedQuery, templates).some((diagnostic) => diagnostic.code === 'PPL011')).toBe(false);
     const excluded = linter.lint(excludedQuery, templates);
@@ -78,8 +154,8 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('selects function signatures by PPL command context', () => {
-    const invalid = 'source=auditd-reader | where sum(event.sequence, 1) > 0';
-    const valid = 'source=auditd-reader | eval total = sum(1, 2)';
+    const invalid = 'source=test-reader | where sum(event.sequence, 1) > 0';
+    const valid = 'source=test-reader | eval total = sum(1, 2)';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
 
     expect(linter.lint(invalid, templates).some((diagnostic) => diagnostic.code === 'PPL014')).toBe(true);
@@ -87,14 +163,14 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('matches OpenSearch accepted eval sum, empty concat, and array constructor calls', () => {
-    const query = "source=auditd-reader | eval total = sum(event.enabled), coerced = sum('not_numeric'), joined = concat(), empty = array(), size = array_length(array(1, 2))";
+    const query = "source=test-reader | eval total = sum(event.enabled), coerced = sum('not_numeric'), joined = concat(), empty = array(), size = array_length(array(1, 2))";
     const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
       .filter((diagnostic) => diagnostic.severity === 'error');
     expect(errors).toEqual([]);
   });
 
   it('rejects invalid array and eval-sum arguments', () => {
-    const query = 'source=auditd-reader | eval invalid_size = array_length(event.sequence), invalid_sum = sum(array(1))';
+    const query = 'source=test-reader | eval invalid_size = array_length(event.sequence), invalid_sum = sum(array(1))';
     const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
       .filter(({ code }) => code === 'PPL014');
     expect(errors).toHaveLength(2);
@@ -103,33 +179,149 @@ describe('schema-aware PPL type checking', () => {
   it('only permits eval wrappers inside aggregate function arguments', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     for (const query of [
-      'source=auditd-reader | stats eval(event.type) as result',
-      'source=auditd-reader | eventstats eval(event.type) as result',
-      'source=auditd-reader | streamstats eval(event.type) as result',
+      'source=test-reader | stats eval(event.type) as result',
+      'source=test-reader | eventstats eval(event.type) as result',
+      'source=test-reader | streamstats eval(event.type) as result',
     ]) {
       expect(linter.lint(query, templates).some((diagnostic) => diagnostic.severity === 'error'), query).toBe(true);
     }
-    expect(linter.lint('source=auditd-reader | stats count(eval(event.enabled))', templates)
+    expect(linter.lint('source=test-reader | stats count(eval(event.enabled))', templates)
       .filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
     for (const command of ['eventstats', 'streamstats']) {
-      expect(linter.lint(`source=auditd-reader | ${command} count(eval(event.enabled))`, templates)
+      expect(linter.lint(`source=test-reader | ${command} count(eval(event.enabled))`, templates)
         .filter(({ code }) => code === 'PPL014')).toHaveLength(1);
     }
   });
 
+  it('rejects VALUES on an array produced by an earlier stats stage across a join', () => {
+    const query = `source=test-reader
+      | eval tenant_name = event.type, src_ip = callerIpAddress
+      | streamstats count() as burst_id by src_ip
+      | stats VALUES(tenant_name) AS tenant_name by src_ip, burst_id
+      | left join left=w right=e on w.src_ip = e.src_ip
+        [ source=test-reader | eval src_ip = callerIpAddress | fields src_ip ]
+      | stats VALUES(tenant_name) AS tenant_name by src_ip
+      | eval tenant_name = mvjoin(tenant_name, ', ')`;
+    expect(parsePpl(query).syntaxErrors).toEqual([]);
+    const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'PPL014',
+      message: "Function 'VALUES' argument 1 requires scalar, got array.",
+    });
+    expect(errors[0].span.start.offset).toBe(query.lastIndexOf('VALUES(tenant_name)') + 'VALUES('.length);
+  });
+
+  it.each(['values', 'list', 'take'])('preserves %s array element types in the next stage', (aggregation) => {
+    const query = `source=test-reader | stats ${aggregation}(event.type) as tenants
+      | eval tenant = mvindex(tenants, 0) | fields tenant`;
+    const fields = typedFieldScopeAt(query, templates, query.indexOf('fields tenant'));
+    expect(fields?.get('tenant')?.pplTypes).toEqual(['string']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it.each(['list', 'values'])('rejects %s on an explicit array but accepts scalar inputs', (aggregation) => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const input of ["array('tenant')", "split(event.type, ',')"]) {
+      const query = `source=test-reader | stats ${aggregation}(${input}) as tenants`;
+      expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'))
+        .toMatchObject([{ message: `Function '${aggregation}' argument 1 requires scalar, got array.` }]);
+    }
+    const query = `source=test-reader | stats ${aggregation}(event.type), ${aggregation}(event.sequence), ${aggregation}(event.enabled), ${aggregation}(callerIpAddress)`;
+    expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it.each(['list', 'values'])('infers string elements from %s with numeric input', (aggregation) => {
+    const query = `source=test-reader | stats ${aggregation}(123) as items
+      | eval probe_item = mvindex(items, 0)
+      | eval probe_length = length(probe_item)
+      | fields probe_item, probe_length`;
+    const fields = typedFieldScopeAt(query, templates, query.indexOf('fields probe_item'));
+    expect(fields?.get('probe_item')?.pplTypes).toEqual(['string']);
+    expect(fields?.get('probe_length')?.pplTypes).toEqual(['int']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('rejects LIST on an array field produced by eval', () => {
+    const query = 'source=test-reader | eval probe_array = array(123) | stats list(probe_array) as probe_list';
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toMatchObject([
+      { code: 'PPL014', message: "Function 'list' argument 1 requires scalar, got array." },
+    ]);
+  });
+
+  it.each([
+    ['now()', 'timestamp'],
+    ['123', 'int'],
+    ['mvindex(array(123), 0)', 'int'],
+  ])('rejects LENGTH on %s without implicit string coercion', (expression, type) => {
+    const query = `source=test-reader | eval probe_item = ${expression} | eval probe_length = length(probe_item)`;
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toMatchObject([
+      { code: 'PPL014', message: `Function 'length' argument 1 requires string, got ${type}.` },
+    ]);
+  });
+
+  it('infers a string when MVINDEX extracts a mapped timestamp array element', () => {
+    const timestampTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
+metadata: { name: test-audit }
+spec:
+  indexPatterns: ['test-audit-*']
+  template:
+    aliases: { test-reader: {} }
+    mappings:
+      properties:
+        '@timestamp': { type: date }
+`, 'timestamp.yaml');
+    const query = `source=test-reader | head 1
+      | eval probe_array = array(@timestamp)
+      | eval probe_item = mvindex(probe_array, 0)
+      | eval probe_length = length(probe_item)
+      | fields @timestamp, probe_array, probe_item, probe_length`;
+    const fields = typedFieldScopeAt(query, timestampTemplates, query.indexOf('fields @timestamp'));
+    expect(fields?.get('@timestamp')?.pplTypes).toEqual(['timestamp']);
+    expect(fields?.get('probe_array')?.pplTypes).toEqual(['array']);
+    expect(fields?.get('probe_item')?.pplTypes).toEqual(['string']);
+    expect(fields?.get('probe_length')?.pplTypes).toEqual(['int']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, timestampTemplates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('accepts extracting a timestamp array element without using it as a string', () => {
+    const query = 'source=test-reader | eval probe_array = array(now()) | eval probe_item = mvindex(probe_array, 0) | fields probe_array, probe_item';
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
+  it('preserves collected arrays through streamstats and type-preserving aggregates', () => {
+    const query = `source=test-reader | stats values(event.type) as tenants
+      | streamstats count() as total
+      | stats first(tenants) as tenants
+      | eval tenant = mvindex(tenants, 0), joined = mvjoin(tenants, ', ')
+      | fields tenant, joined`;
+    const fields = typedFieldScopeAt(query, templates, query.indexOf('fields tenant'));
+    expect(fields?.get('tenant')?.pplTypes).toEqual(['string']);
+    expect(fields?.get('joined')?.pplTypes).toEqual(['string']);
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+  });
+
   it('requires literal TAKE sizes and restricts TAKE and VALUES contexts', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = 'source=auditd-reader | stats take(event.type), take(event.type, 5), values(event.type), distinct_count_approx(event.type)';
+    const valid = 'source=test-reader | stats take(event.type), take(event.type, 5), values(event.type), distinct_count_approx(event.type)';
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
 
     for (const query of [
-      'source=auditd-reader | stats take(event.type, event.sequence)',
-      'source=auditd-reader | eventstats take(event.type)',
-      'source=auditd-reader | streamstats take(event.type)',
-      'source=auditd-reader | eventstats values(event.type)',
-      'source=auditd-reader | streamstats values(event.type)',
-      'source=auditd-reader | eventstats distinct_count_approx(event.type)',
-      'source=auditd-reader | streamstats distinct_count_approx(event.type)',
+      'source=test-reader | stats take(event.type, event.sequence)',
+      'source=test-reader | eventstats take(event.type)',
+      'source=test-reader | streamstats take(event.type)',
+      'source=test-reader | eventstats values(event.type)',
+      'source=test-reader | streamstats values(event.type)',
+      'source=test-reader | eventstats distinct_count_approx(event.type)',
+      'source=test-reader | streamstats distinct_count_approx(event.type)',
     ]) {
       expect(linter.lint(query, templates).filter(({ code }) => code === 'PPL014'), query).toHaveLength(1);
     }
@@ -137,9 +329,9 @@ describe('schema-aware PPL type checking', () => {
 
   it('restricts SPAN to compatible group-by expressions', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = 'source=auditd-reader | stats count() by span(event.sequence, 10)';
-    const invalidContext = 'source=auditd-reader | stats span(event.sequence, 10) as result';
-    const invalidField = 'source=auditd-reader | stats count() by span(event.type, 10)';
+    const valid = 'source=test-reader | stats count() by span(event.sequence, 10)';
+    const invalidContext = 'source=test-reader | stats span(event.sequence, 10) as result';
+    const invalidField = 'source=test-reader | stats count() by span(event.type, 10)';
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalidContext, templates).some(({ code }) => code === 'PPL014')).toBe(true);
@@ -148,8 +340,8 @@ describe('schema-aware PPL type checking', () => {
 
   it('requires LIKE case sensitivity to be literal and RIGHT lengths to be integers', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = "source=auditd-reader | eval matched = like(event.type, 'login%', true), suffix = right(event.type, 5)";
-    const invalid = "source=auditd-reader | eval matched = like(event.type, 'login%', event.enabled), suffix = right(event.type, event.sequence)";
+    const valid = "source=test-reader | eval matched = like(event.type, 'login%', true), suffix = right(event.type, 5)";
+    const invalid = "source=test-reader | eval matched = like(event.type, 'login%', event.enabled), suffix = right(event.type, event.sequence)";
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
@@ -157,25 +349,56 @@ describe('schema-aware PPL type checking', () => {
 
   it('accepts compatible IF branches and rejects incompatible IF and IFNULL branches', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = "source=auditd-reader | eval numeric_choice = if(event.enabled, event.sequence, 1.5), text_choice = ifnull(event.type, 'unknown')";
-    const invalid = 'source=auditd-reader | eval mixed_choice = if(event.enabled, event.type, event.sequence), mixed_fallback = ifnull(event.type, event.sequence)';
+    const valid = "source=test-reader | eval numeric_choice = if(event.enabled, event.sequence, 1.5), text_choice = ifnull(event.type, 'unknown')";
+    const invalid = 'source=test-reader | eval mixed_choice = if(event.enabled, event.enabled, event.sequence), mixed_fallback = ifnull(event.enabled, event.sequence)';
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
   });
 
   it('coerces mixed numeric and string coalesce arguments to a string result', () => {
-    const query = 'source=auditd-reader | eval coerced = coalesce(event.sequence, event.type) | eval normalized = lower(coerced)';
+    const query = 'source=test-reader | eval coerced = coalesce(event.sequence, event.type) | eval normalized = lower(coerced)';
     const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
       .filter((diagnostic) => diagnostic.severity === 'error');
 
     expect(errors).toEqual([]);
   });
 
+  it('uses a shared string result for temporal IF and IFNULL branches through eval', () => {
+    const linter = new PplLinter({ openSearchVersion: '3.5' });
+    for (const expression of [
+      "if(event.enabled, now(), 'unknown')",
+      "if(event.enabled, 'unknown', now())",
+      "ifnull(now(), 'unknown')",
+      "ifnull('unknown', now())",
+      "coalesce(now(), 'unknown')",
+      "coalesce('unknown', now())",
+      "case(event.enabled, now(), 'unknown')",
+      'if(event.enabled, event.sequence, event.type)',
+      'ifnull(event.type, event.sequence)',
+    ]) {
+      const query = `source=test-reader | eval choice = ${expression} | eval normalized = lower(choice)`;
+      expect(linter.lint(query, templates).filter(({ severity }) => severity === 'error'), query).toEqual([]);
+    }
+  });
+
+  it.each([
+    'if(event.enabled, event.sequence, 1.5)',
+    'ifnull(event.sequence, 1.5)',
+    'coalesce(null, event.sequence, 1.5)',
+    'case(event.enabled, event.sequence, 1.5)',
+    'case(event.enabled, event.sequence, event.enabled, 1.5)',
+  ])('widens conditional numeric results for %s', (expression) => {
+    const query = `source=test-reader | eval choice = ${expression} | where choice > 0`;
+    expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
+      .filter(({ severity }) => severity === 'error')).toEqual([]);
+    expect(typedFieldScopeAt(query, templates, query.length)?.get('choice')?.pplTypes).toEqual(['double']);
+  });
+
   it('restricts relevance-search functions to WHERE while accepting pushed-down use', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = "source=auditd-reader | where match_phrase(event.type, 'login') OR regexp_match(event.type, 'log.*')";
-    const invalid = "source=auditd-reader | eval phrase = match_phrase(event.type, 'login'), matched = regexp_match(event.type, 'log.*')";
+    const valid = "source=test-reader | where match_phrase(event.type, 'login') OR regexp_match(event.type, 'log.*')";
+    const invalid = "source=test-reader | eval phrase = match_phrase(event.type, 'login'), matched = regexp_match(event.type, 'log.*')";
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
@@ -183,8 +406,8 @@ describe('schema-aware PPL type checking', () => {
 
   it('accepts string predicates and rejects non-string ISBLANK and ISEMPTY arguments', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = 'source=auditd-reader | eval blank = isblank(event.type), empty = isempty(event.type)';
-    const invalid = 'source=auditd-reader | eval blank = isblank(event.sequence), empty = isempty(event.sequence)';
+    const valid = 'source=test-reader | eval blank = isblank(event.type), empty = isempty(event.type)';
+    const invalid = 'source=test-reader | eval blank = isblank(event.sequence), empty = isempty(event.sequence)';
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(2);
@@ -192,15 +415,15 @@ describe('schema-aware PPL type checking', () => {
 
   it('type-checks aliased timechart aggregations', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = 'source=auditd-reader | timechart span=1d count() as total';
-    const invalid = 'source=auditd-reader | timechart span=1d sum(event.enabled) as total';
+    const valid = 'source=test-reader | timechart span=1d count() as total';
+    const invalid = 'source=test-reader | timechart span=1d sum(event.enabled) as total';
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(invalid, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(1);
   });
 
   it('rejects known OpenSearch function argument type mismatches', () => {
-    const invalid = 'source=auditd-reader | eval round_value = round(event.sequence, event.enabled), substring_value = substr(event.type, event.enabled), next_date = date_add(now(), event.sequence), next_date_alias = adddate(now(), event.type), added = timestampadd(DAY, event.type, now())';
+    const invalid = 'source=test-reader | eval round_value = round(event.sequence, event.enabled), substring_value = substr(event.type, event.enabled), next_date = date_add(now(), event.sequence), next_date_alias = adddate(now(), event.type), added = timestampadd(DAY, event.type, now())';
     const errors = new PplLinter({ openSearchVersion: '3.5' }).lint(invalid, templates)
       .filter((diagnostic) => diagnostic.code === 'PPL014');
     expect(errors).toHaveLength(5);
@@ -208,10 +431,10 @@ describe('schema-aware PPL type checking', () => {
 
   it('requires percentile arguments to be constant fractions in the range zero to one', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const valid = 'source=auditd-reader | stats percentile(event.sequence, 0.9), percentile_approx(event.sequence, 0.5)';
-    const dynamic = 'source=auditd-reader | stats percentile(event.sequence, event.sequence)';
-    const tooLarge = 'source=auditd-reader | stats percentile(event.sequence, 90)';
-    const tooSmall = 'source=auditd-reader | stats percentile_approx(event.sequence, 1.1)';
+    const valid = 'source=test-reader | stats percentile(event.sequence, 0.9), percentile_approx(event.sequence, 0.5)';
+    const dynamic = 'source=test-reader | stats percentile(event.sequence, event.sequence)';
+    const tooLarge = 'source=test-reader | stats percentile(event.sequence, 90)';
+    const tooSmall = 'source=test-reader | stats percentile_approx(event.sequence, 1.1)';
 
     expect(linter.lint(valid, templates).filter(({ severity }) => severity === 'error')).toEqual([]);
     expect(linter.lint(dynamic, templates).filter(({ code }) => code === 'PPL014')).toHaveLength(1);
@@ -220,7 +443,7 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('accepts uppercase NOT applied to boolean LIKE predicates', () => {
-    const query = "source=auditd-reader | where NOT (execve_command LIKE '%--list%' OR execve_command LIKE '%-L%' OR execve_command LIKE '%--version%')";
+    const query = "source=test-reader | where NOT (execve_command LIKE '%--list%' OR execve_command LIKE '%-L%' OR execve_command LIKE '%--version%')";
     const ast = parsePpl(query);
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
@@ -229,9 +452,9 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('validates documented statistical aggregation signatures', () => {
-    const valid = 'source=auditd-reader | stats var_pop(event.sequence), var_samp(event.sequence), stddev_pop(event.sequence), stddev_samp(event.sequence), percentile(event.sequence, 0.9), percentile_approx(event.sequence, 0.9), median(event.sequence), list(event.type), take(event.type, 5)';
-    const invalid = 'source=auditd-reader | stats var_pop(event.enabled), percentile(event.sequence), take(event.sequence, event.enabled)';
-    const contextMismatch = 'source=auditd-reader | where var_pop(event.sequence) > 0';
+    const valid = 'source=test-reader | stats var_pop(event.sequence), var_samp(event.sequence), stddev_pop(event.sequence), stddev_samp(event.sequence), percentile(event.sequence, 0.9), percentile_approx(event.sequence, 0.9), median(event.sequence), list(event.type), take(event.type, 5)';
+    const invalid = 'source=test-reader | stats var_pop(event.enabled), percentile(event.sequence), take(event.sequence, event.enabled)';
+    const contextMismatch = 'source=test-reader | where var_pop(event.sequence) > 0';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const validDiagnostics = linter.lint(valid, templates);
     const invalidSignatureDiagnostics = linter.lint(invalid, templates)
@@ -247,8 +470,8 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('validates documented string signatures including POSITION syntax', () => {
-    const valid = "source=auditd-reader | eval cleaned = trim(event.type), joined = concat_ws('-', event.type, 'suffix'), part = substr(event.type, 1, 2), replaced = replace(event.type, 'a', 'b'), regex_replaced = regexp_replace(event.type, 'a', 'b'), matched = like(event.type, 'x%', true), insensitive = ilike(event.type, 'x%'), located = position('x' IN event.type)";
-    const invalid = 'source=auditd-reader | eval bad_trim = trim(event.sequence), bad_substring = substring(event.type, event.enabled), bad_like = like(event.type, "x%", event.sequence), bad_replace = replace(event.type, "x")';
+    const valid = "source=test-reader | eval cleaned = trim(event.type), joined = concat_ws('-', event.type, 'suffix'), part = substr(event.type, 1, 2), replaced = replace(event.type, 'a', 'b'), regex_replaced = regexp_replace(event.type, 'a', 'b'), matched = like(event.type, 'x%', true), insensitive = ilike(event.type, 'x%'), located = position('x' IN event.type)";
+    const invalid = 'source=test-reader | eval bad_trim = trim(event.sequence), bad_substring = substring(event.type, event.enabled), bad_like = like(event.type, "x%", event.sequence), bad_replace = replace(event.type, "x")';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const validDiagnostics = linter.lint(valid, templates);
     const invalidDiagnostics = linter.lint(invalid, templates)
@@ -260,14 +483,14 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('accepts the comma POSITION form verified by OpenSearch', () => {
-    const query = 'source=auditd-reader | eval located = position(event.type, event.type)';
+    const query = 'source=test-reader | eval located = position(event.type, event.type)';
     expect(new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates)
       .filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
   });
 
   it('validates date signatures and recognizes parser-produced INTERVAL arguments', () => {
-    const valid = "source=auditd-reader | eval parsed_date = date('2020-08-26'), next_date = adddate(date('2020-08-26'), 1), next_timestamp = date_add(now(), INTERVAL 1 DAY), prior_timestamp = date_sub(now(), INTERVAL 1 DAY), timestamp_value = timestamp(date('2020-08-26')), year_value = year(now()), month_value = month(now()), day_value = day(date('2020-08-26')), second_value = second(now()), extracted = extract(DAY FROM now()) | where year(next_timestamp) > 0 AND year(next_date) > 0";
-    const invalid = 'source=auditd-reader | eval bad_year = year(event.enabled), bad_timestamp = timestamp(event.enabled), bad_extract = extract(DAY FROM event.enabled), bad_adddate = adddate(now())';
+    const valid = "source=test-reader | eval parsed_date = date('2020-08-26'), next_date = adddate(date('2020-08-26'), 1), next_timestamp = date_add(now(), INTERVAL 1 DAY), prior_timestamp = date_sub(now(), INTERVAL 1 DAY), timestamp_value = timestamp(date('2020-08-26')), year_value = year(now()), month_value = month(now()), day_value = day(date('2020-08-26')), second_value = second(now()), extracted = extract(DAY FROM now()) | where year(next_timestamp) > 0 AND year(next_date) > 0";
+    const invalid = 'source=test-reader | eval bad_year = year(event.enabled), bad_timestamp = timestamp(event.enabled), bad_extract = extract(DAY FROM event.enabled), bad_adddate = adddate(now())';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const validDiagnostics = linter.lint(valid, templates);
     const invalidDiagnostics = linter.lint(invalid, templates)
@@ -280,8 +503,8 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('validates documented math and cryptographic signatures', () => {
-    const valid = "source=auditd-reader | eval cube_root = cbrt(event.sequence), exponential = exp(event.sequence), natural_log = ln(event.sequence), natural_log_base = log(event.sequence), custom_log_base = log(2, event.sequence), decimal_log = log10(event.sequence), binary_log = log2(event.sequence), power_value = pow(event.sequence, 2), power_alias = power(event.sequence, 2), fallback = ifnull(event.type, 'unknown'), digest = md5(event.type), sha1_digest = sha1(event.type) | stats count(eval(event.enabled))";
-    const invalid = 'source=auditd-reader | eval bad_exp = exp(event.enabled), bad_pow = pow(event.sequence), bad_ifnull = ifnull(event.type), bad_digest = md5(event.sequence)';
+    const valid = "source=test-reader | eval cube_root = cbrt(event.sequence), exponential = exp(event.sequence), natural_log = ln(event.sequence), natural_log_base = log(event.sequence), custom_log_base = log(2, event.sequence), decimal_log = log10(event.sequence), binary_log = log2(event.sequence), power_value = pow(event.sequence, 2), power_alias = power(event.sequence, 2), fallback = ifnull(event.type, 'unknown'), digest = md5(event.type), sha1_digest = sha1(event.type) | stats count(eval(event.enabled))";
+    const invalid = 'source=test-reader | eval bad_exp = exp(event.enabled), bad_pow = pow(event.sequence), bad_ifnull = ifnull(event.type), bad_digest = md5(event.sequence)';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const validDiagnostics = linter.lint(valid, templates);
     const invalidDiagnostics = linter.lint(invalid, templates)
@@ -293,8 +516,8 @@ describe('schema-aware PPL type checking', () => {
   });
 
   it('warns for implicit string-to-number conversions in comparisons and arithmetic', () => {
-    const comparison = 'source=auditd-reader | where event.type > 1';
-    const arithmetic = 'source=auditd-reader | eval numeric = event.type - 1';
+    const comparison = 'source=test-reader | where event.type > 1';
+    const arithmetic = 'source=test-reader | eval numeric = event.type - 1';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
 
     expect(linter.lint(comparison, templates).filter((diagnostic) => diagnostic.code === 'PPL015')).toHaveLength(1);
@@ -304,11 +527,11 @@ describe('schema-aware PPL type checking', () => {
 
   it('errors on used dynamic children but accepts statically declared children', () => {
     const dynamicTemplate = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: dynamic-logs }
+metadata: { name: test-dynamic-logs }
 spec:
-  indexPatterns: ['dynamic-logs-*']
+  indexPatterns: ['test-dynamic-logs-*']
   template:
-    aliases: { dynamic-logs-reader: {} }
+    aliases: { test-dynamic-logs-reader: {} }
     mappings:
       dynamic: false
       properties:
@@ -317,10 +540,10 @@ spec:
           dynamic: true
           properties:
             category: { type: keyword }
-`, 'dynamic-logs.yaml');
+`, 'test-dynamic-logs.yaml');
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const dynamicUse = "source=dynamic-logs-reader | where attributes.runtime_key == 'value'";
-    const declaredUse = "source=dynamic-logs-reader | where attributes.category == 'value'";
+    const dynamicUse = "source=test-dynamic-logs-reader | where attributes.runtime_key == 'value'";
+    const declaredUse = "source=test-dynamic-logs-reader | where attributes.category == 'value'";
 
     expect(linter.lint(dynamicUse, dynamicTemplate).some((diagnostic) => diagnostic.code === 'PPL012')).toBe(true);
     expect(linter.lint(declaredUse, dynamicTemplate).some((diagnostic) => diagnostic.code === 'PPL012')).toBe(false);
@@ -328,11 +551,11 @@ spec:
 
   it('merges equivalent PPL types and reports conflicting field types only when used', () => {
     const secondTemplate = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: auditd-secondary }
+metadata: { name: test-audit-secondary }
 spec:
-  indexPatterns: ['auditd-secondary-*']
+  indexPatterns: ['test-audit-secondary-*']
   template:
-    aliases: { auditd-reader: {} }
+    aliases: { test-reader: {} }
     mappings:
       dynamic: false
       properties:
@@ -340,15 +563,15 @@ spec:
           properties:
             type: { type: text }
             sequence: { type: integer }
-`, 'auditd-secondary.yaml');
+`, 'test-audit-secondary.yaml');
     const aliasTemplates = [...templates, ...secondTemplate];
-    const fields = resolveSource(aliasTemplates, 'auditd-reader');
+    const fields = resolveSource(aliasTemplates, 'test-reader');
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const conflictQuery = 'source=auditd-reader | where event.sequence > 0';
+    const conflictQuery = 'source=test-reader | where event.sequence > 0';
     const conflict = linter.lint(conflictQuery, aliasTemplates).find((diagnostic) => diagnostic.code === 'PPL013');
     const fieldStart = conflictQuery.indexOf('event.sequence');
     const unusedConflict = linter.lint(
-      "source=auditd-reader | where event.type == 'login'",
+      "source=test-reader | where event.type == 'login'",
       aliasTemplates
     );
 
@@ -360,7 +583,7 @@ spec:
   });
 
   it('parses CAST(expr AS type) as a typed expression node', () => {
-    const ast = parsePpl('source=auditd-reader | eval sequence_text = CAST(event.sequence AS STRING)');
+    const ast = parsePpl('source=test-reader | eval sequence_text = CAST(event.sequence AS STRING)');
     const evalStage = ast.stages[0] as EvalStageNode;
 
     expect(ast.syntaxErrors).toHaveLength(0);
@@ -372,17 +595,17 @@ spec:
 
   it('rejects invalid cast targets and incompatible arithmetic operands', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const castQuery = "source=auditd-reader | eval bad = CAST(event.sequence AS madeup)";
-    const arithmeticQuery = 'source=auditd-reader | eval bad = event.enabled + 1';
+    const castQuery = "source=test-reader | eval bad = CAST(event.sequence AS madeup)";
+    const arithmeticQuery = 'source=test-reader | eval bad = event.enabled + 1';
 
     expect(linter.lint(castQuery, templates).some((diagnostic) => diagnostic.code === 'PPL014')).toBe(true);
     expect(linter.lint(arithmeticQuery, templates).some((diagnostic) => diagnostic.code === 'PPL014')).toBe(true);
   });
 
   it('checks function argument types using normalized PPL field types', () => {
-    const invalid = 'source=auditd-reader | where abs(event.enabled) > 1';
-    const valid = 'source=auditd-reader | where abs(event.sequence) > 1';
-    const coercion = 'source=auditd-reader | where abs(event.type) > 1';
+    const invalid = 'source=test-reader | where abs(event.enabled) > 1';
+    const valid = 'source=test-reader | where abs(event.sequence) > 1';
+    const coercion = 'source=test-reader | where abs(event.type) > 1';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const mismatch = linter.lint(invalid, templates).find((diagnostic) => diagnostic.code === 'PPL014');
     const warning = linter.lint(coercion, templates).find((diagnostic) => diagnostic.code === 'PPL015');
@@ -390,13 +613,13 @@ spec:
     expect(mismatch?.severity).toBe('error');
     expect(invalid.slice(mismatch!.span.start.offset, mismatch!.span.end.offset)).toBe('event.enabled');
     expect(warning?.severity).toBe('warning');
-    const evalCoercion = linter.lint('source=auditd-reader | eval numeric = abs(event.type)', templates);
+    const evalCoercion = linter.lint('source=test-reader | eval numeric = abs(event.type)', templates);
     expect(evalCoercion.filter((diagnostic) => diagnostic.code === 'PPL015')).toHaveLength(1);
     expect(linter.lint(valid, templates).some((diagnostic) => diagnostic.code === 'PPL014')).toBe(false);
   });
 
   it('propagates CAST and function result types through eval stages', () => {
-    const query = 'source=auditd-reader | eval textual = CAST(event.sequence AS STRING), magnitude = abs(event.sequence) | where length(textual) > 0 AND abs(magnitude) > 0';
+    const query = 'source=test-reader | eval textual = CAST(event.sequence AS STRING), magnitude = abs(event.sequence) | where length(textual) > 0 AND abs(magnitude) > 0';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL012')).toBe(false);
@@ -405,8 +628,8 @@ spec:
 
   it('collapses stats scope but preserves input fields through streamstats', () => {
     const linter = new PplLinter({ openSearchVersion: '3.5' });
-    const statsQuery = 'source=auditd-reader | stats sum(event.sequence) as total by event.type | where event.sequence > 0';
-    const streamstatsQuery = 'source=auditd-reader | streamstats count() as total by event.type | where event.sequence > 0 AND total > 0';
+    const statsQuery = 'source=test-reader | stats sum(event.sequence) as total by event.type | where event.sequence > 0';
+    const streamstatsQuery = 'source=test-reader | streamstats count() as total by event.type | where event.sequence > 0 AND total > 0';
 
     expect(linter.lint(statsQuery, templates).some((diagnostic) =>
       diagnostic.code === 'PPL012' && diagnostic.message.includes("'event.sequence'")
@@ -416,8 +639,8 @@ spec:
 
   it('resolves lookup aliases and patterns, defaults mapping fields, and propagates all non-key output types', () => {
     const allTemplates = [...templates, ...lookupTemplates];
-    const aliasQuery = 'source=auditd-reader | lookup workers-reader event.type | where length(department) > 0 AND abs(city) > 0';
-    const patternQuery = 'source=auditd-reader | lookup workers-* event.type as event.type replace department as team | where length(team) > 0';
+    const aliasQuery = 'source=test-reader | lookup test_workers-reader event.type | where length(department) > 0 AND abs(city) > 0';
+    const patternQuery = 'source=test-reader | lookup test_workers-* event.type as event.type replace department as team | where length(team) > 0';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const aliasDiagnostics = linter.lint(aliasQuery, allTemplates);
     const patternDiagnostics = linter.lint(patternQuery, allTemplates);
@@ -431,7 +654,7 @@ spec:
 
   it('treats lookup OUTPUT as REPLACE and aliases the selected lookup field', () => {
     const allTemplates = [...templates, ...lookupTemplates];
-    const query = 'source=auditd-reader | lookup workers-reader user as user.name OUTPUT user as whitelisted_user | where isnull(whitelisted_user)';
+    const query = 'source=test-reader | lookup test_workers-reader user as user.name OUTPUT user as whitelisted_user | where isnull(whitelisted_user)';
     const ast = parsePpl(query);
     const lookup = ast.stages[0] as LookupStageNode;
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, allTemplates);
@@ -446,11 +669,11 @@ spec:
 
   it('validates lookup mapping fields and applies replace and append output semantics', () => {
     const allTemplates = [...templates, ...lookupTemplates];
-    const appendExisting = 'source=auditd-reader | lookup workers-reader event.type append department as event.type | where length(event.type) > 0';
-    const appendMissing = 'source=auditd-reader | lookup workers-reader event.type append department as team';
-    const missingLookupKey = 'source=auditd-reader | lookup workers-reader missing_key as event.type';
-    const missingSourceKey = 'source=auditd-reader | lookup workers-reader event.type as missing_source';
-    const missingOutput = 'source=auditd-reader | lookup workers-reader event.type replace missing_output as team';
+    const appendExisting = 'source=test-reader | lookup test_workers-reader event.type append department as event.type | where length(event.type) > 0';
+    const appendMissing = 'source=test-reader | lookup test_workers-reader event.type append department as team';
+    const missingLookupKey = 'source=test-reader | lookup test_workers-reader missing_key as event.type';
+    const missingSourceKey = 'source=test-reader | lookup test_workers-reader event.type as missing_source';
+    const missingOutput = 'source=test-reader | lookup test_workers-reader event.type replace missing_output as team';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
 
     expect(linter.lint(appendExisting, allTemplates).some((diagnostic) => diagnostic.code === 'PPL012')).toBe(false);
@@ -470,10 +693,10 @@ spec:
 
   it('reports unresolved or excluded lookup indexes without cascading field errors', () => {
     const allTemplates = [...templates, ...lookupTemplates];
-    const unresolved = 'source=auditd-reader | lookup missing-reader event.type replace department as team | where length(team) > 0';
-    const excluded = 'source=auditd-reader | lookup workers-reader event.type replace department as team';
+    const unresolved = 'source=test-reader | lookup test-missing-reader event.type replace department as team | where length(team) > 0';
+    const excluded = 'source=test-reader | lookup test_workers-reader event.type replace department as team';
     const unresolvedDiagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(unresolved, allTemplates);
-    const excludedDiagnostics = new PplLinter({ openSearchVersion: '3.5', includedIndexes: ['auditd-*'] }).lint(excluded, allTemplates);
+    const excludedDiagnostics = new PplLinter({ openSearchVersion: '3.5', includedIndexes: ['test-audit-*'] }).lint(excluded, allTemplates);
 
     expect(unresolvedDiagnostics.filter((diagnostic) => diagnostic.code === 'PPL011')).toHaveLength(1);
     expect(unresolvedDiagnostics.some((diagnostic) => diagnostic.code === 'PPL012')).toBe(false);
@@ -483,7 +706,7 @@ spec:
   });
 
   it('projects available fields through table instead of making later scope uncertain', () => {
-    const query = 'source=auditd-reader | table event.type | where event.sequence > 0';
+    const query = 'source=test-reader | table event.type | where event.sequence > 0';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) =>
@@ -492,7 +715,7 @@ spec:
   });
 
   it('infers return types for common date functions and treats date-part arguments as constants', () => {
-    const query = 'source=auditd-reader | eval day = dayname(now()), next = timestampadd(DAY, 1, now()) | where length(day) > 0 AND hour(next) > 0';
+    const query = 'source=test-reader | eval day = dayname(now()), next = timestampadd(DAY, 1, now()) | where length(day) > 0 AND hour(next) > 0';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(false);
@@ -501,7 +724,7 @@ spec:
   });
 
   it('infers a common result type for CASE branches', () => {
-    const query = "source=auditd-reader | eval label = case(event.enabled, 'enabled', event.type == 'login' else 'other') | where length(label) > 0";
+    const query = "source=test-reader | eval label = case(event.enabled, 'enabled', event.type == 'login' else 'other') | where length(label) > 0";
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL012')).toBe(false);
@@ -510,18 +733,18 @@ spec:
 
   it('types chained IF null-check flags as int and keeps them available to later stages', () => {
     const holidayTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: holiday-events }
+metadata: { name: test-holiday-events }
 spec:
-  indexPatterns: ['holiday-events-*']
+  indexPatterns: ['test-holiday-events-*']
   template:
-    aliases: { holiday-events-reader: {} }
+    aliases: { test-holiday-events-reader: {} }
     mappings:
       properties:
         blacklisted_domain: { type: keyword }
         allowlisted_domain: { type: keyword }
         matched_ip: { type: keyword }
-`, 'holiday-events.yaml');
-    const query = 'source=holiday-events-reader | eval is_blacklisted = if(isnull(blacklisted_domain), 1, 0) | eval is_allowlisted = if(isnotnull(allowlisted_domain), 1, 0) | eval is_runner_match = if(isnotnull(matched_ip), 1, 0) | where is_allowlisted == 1';
+`, 'test-holiday-events.yaml');
+    const query = 'source=test-holiday-events-reader | eval is_blacklisted = if(isnull(blacklisted_domain), 1, 0) | eval is_allowlisted = if(isnotnull(allowlisted_domain), 1, 0) | eval is_runner_match = if(isnotnull(matched_ip), 1, 0) | where is_allowlisted == 1';
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     const diagnostics = linter.lint(query, holidayTemplates);
     const fields = typedFieldScopeAt(query, holidayTemplates, query.length);
@@ -534,7 +757,7 @@ spec:
   });
 
   it('recognizes match_phrase with string arguments and a boolean result', () => {
-    const query = "source=auditd-reader | where match_phrase(event.type, 'login')";
+    const query = "source=test-reader | where match_phrase(event.type, 'login')";
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(false);
@@ -542,7 +765,7 @@ spec:
   });
 
   it('types named rex captures as strings for following stages', () => {
-    const query = 'source=auditd-reader | rex field=event.type "(?<login>\\w+)" | where abs(login) > 0';
+    const query = 'source=test-reader | rex field=event.type "(?<login>\\w+)" | where abs(login) > 0';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.filter((diagnostic) => diagnostic.code === 'PPL015')).toHaveLength(1);
@@ -550,7 +773,7 @@ spec:
   });
 
   it('checks source fields inside stats grouping expressions', () => {
-    const query = 'source=auditd-reader | stats count() by span(event.missing, 10)';
+    const query = 'source=test-reader | stats count() by span(event.missing, 10)';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL012' && diagnostic.message.includes('event.missing'))).toBe(true);
@@ -558,23 +781,23 @@ spec:
 
   it('accepts time interval shorthand in streamstats span grouping', () => {
     const timeTemplates = parseIndexTemplates(`kind: OpensearchIndexTemplate
-metadata: { name: time-events }
+metadata: { name: test-time-events }
 spec:
-  indexPatterns: ['time-events-*']
+  indexPatterns: ['test-time-events-*']
   template:
-    aliases: { time-events-reader: {} }
+    aliases: { test-time-events-reader: {} }
     mappings:
       properties:
         '@timestamp': { type: date }
         user: { type: keyword }
-`, 'time-events.yaml');
+`, 'test-time-events.yaml');
     const linter = new PplLinter({ openSearchVersion: '3.5' });
     for (const interval of ['1ms', '1s', '1m', '1h', '1d', '1w', '1M', '1q', '1y']) {
-      const query = `source=time-events-reader | streamstats count() as eventcount by user, span(@timestamp, ${interval})`;
+      const query = `source=test-time-events-reader | streamstats count() as eventcount by user, span(@timestamp, ${interval})`;
       expect(linter.lint(query, timeTemplates), query).toEqual([]);
     }
 
-    const invalidQuery = 'source=time-events-reader | streamstats count() as eventcount by user, span(@timestamp, missing_interval)';
+    const invalidQuery = 'source=test-time-events-reader | streamstats count() as eventcount by user, span(@timestamp, missing_interval)';
     expect(linter.lint(invalidQuery, timeTemplates)).toContainEqual(expect.objectContaining({
       code: 'PPL012',
       message: expect.stringContaining("Field 'missing_interval'"),
@@ -582,7 +805,7 @@ spec:
   });
 
   it('propagates an aliased span grouping type into later stages', () => {
-    const query = 'source=auditd-reader | stats count() by span(event.sequence, 10) as bucket | where abs(bucket) > 0';
+    const query = 'source=test-reader | stats count() by span(event.sequence, 10) as bucket | where abs(bucket) > 0';
     const diagnostics = new PplLinter({ openSearchVersion: '3.5' }).lint(query, templates);
 
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL012' && diagnostic.message.includes('bucket'))).toBe(false);

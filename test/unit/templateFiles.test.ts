@@ -26,12 +26,12 @@ describe('absolute template globs', () => {
   it('loads a template in a directory outside the workspace', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'ppl-templates-'));
     try {
-      await writeFile(path.join(directory, 'index-template-auditd.yaml'), `kind: OpensearchIndexTemplate
-metadata: { name: auditd }
+      await writeFile(path.join(directory, 'index-template-test-audit.yaml'), `kind: OpensearchIndexTemplate
+metadata: { name: test-audit }
 spec:
-  indexPatterns: ['auditd-*']
+  indexPatterns: ['test-audit-*']
   template:
-    aliases: { auditd-reader: {} }
+    aliases: { test-reader: {} }
     mappings:
       properties:
         host:
@@ -42,7 +42,7 @@ spec:
       const templates = (await Promise.all(files.map(async (file) =>
         parseIndexTemplates(await readFile(file, 'utf8'), file)
       ))).flat();
-      expect(resolveSource(templates, 'auditd-reader').get('host.name')?.types).toEqual(['keyword']);
+      expect(resolveSource(templates, 'test-reader').get('host.name')?.types).toEqual(['keyword']);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

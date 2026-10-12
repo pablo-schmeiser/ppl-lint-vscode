@@ -18,9 +18,9 @@ describe('SourceCoordinateMap', () => {
     const translated = map.translate(span)!;
     expect(translated.start).toEqual({ line: 6, col: 6 });
     expect(translated.end).toEqual({ line: 6, col: 10 });
-    expect(map.toSnippet({ line: 6, col: 6 }, 'source=logs\n| where status > 0')).toEqual({ line: 1, col: 2 });
-    expect(map.toSnippet({ line: 6, col: 3 }, 'source=logs\n| where status > 0')).toBeUndefined();
-    expect(map.toSnippet({ line: 6, col: 50 }, 'source=logs\n| where status > 0')).toBeUndefined();
+    expect(map.toSnippet({ line: 6, col: 6 }, 'source=test_logs\n| where status > 0')).toEqual({ line: 1, col: 2 });
+    expect(map.toSnippet({ line: 6, col: 3 }, 'source=test_logs\n| where status > 0')).toBeUndefined();
+    expect(map.toSnippet({ line: 6, col: 50 }, 'source=test_logs\n| where status > 0')).toBeUndefined();
   });
 });
 
@@ -30,14 +30,14 @@ describe('YAML Extractor', () => {
 rule:
   threshold: 10
   query: |
-    source=http_logs
+    source=test_http_logs
     | where status >= 500
 `;
 
     const queries = extractQueries(yaml, 'yaml', ['rule.query'], false);
     expect(queries).toHaveLength(1);
     expect(queries[0].keyPath).toBe('rule.query');
-    expect(queries[0].rawText).toContain('source=http_logs');
+    expect(queries[0].rawText).toContain('source=test_http_logs');
 
     // Translate second line ("| where status >= 500", starting at col 2 with 'where')
     const snippetSpan: Span = {
@@ -46,7 +46,7 @@ rule:
     };
 
     const hostRange = queries[0].sourceMap.translate(snippetSpan)!;
-    // query is on line 3 (0-indexed: 4 for source=http_logs, 5 for | where status >= 500)
+    // query is on line 3 (0-indexed: 4 for source=test_http_logs, 5 for | where status >= 500)
     expect(hostRange.start.line).toBe(5);
     // Indentation is 4 spaces + col 2 = col 6
     expect(hostRange.start.col).toBe(6);
@@ -55,9 +55,9 @@ rule:
   it('extracts multiple queries matching wildcard key patterns', () => {
     const yaml = `detectors:
   primary:
-    query: "source=web | where status == 500"
+    query: "source=test_web | where status == 500"
   secondary:
-    query: "source=db | stats count()"
+    query: "source=test_db | stats count()"
 `;
 
     const queries = extractQueries(yaml, 'yaml', ['detectors.*.query'], false);
@@ -70,7 +70,7 @@ rule:
 
   it('handles heuristic detection when key is not explicitly listed', () => {
     const yaml = `custom_config:
-  unlisted_key: "source=telemetry | head 10"
+  unlisted_key: "source=test_telemetry | head 10"
 `;
 
     const queries = extractQueries(yaml, 'yaml', [], true);
@@ -86,8 +86,8 @@ rule:
 
   it('does not map decoded or folded scalars to approximate positions', () => {
     for (const yaml of [
-      'query: "source=logs\\n| stat count()"',
-      'query: >\n  source=logs\n  | stat count()\n',
+      'query: "source=test_logs\\n| stat count()"',
+      'query: >\n  source=test_logs\n  | stat count()\n',
     ]) {
       const [query] = extractQueries(yaml, 'yaml', ['query'], false);
       expect(query.sourceMap.translate({
@@ -105,7 +105,7 @@ describe('JSON Extractor', () => {
       {
         id: 'dash-1',
         savedSearch: {
-          ppl_query: 'source=metrics | stats avg(cpu)',
+          ppl_query: 'source=test_metrics | stats avg(cpu)',
         },
       },
       null,
@@ -114,7 +114,7 @@ describe('JSON Extractor', () => {
 
     const queries = extractQueries(json, 'json', ['savedSearch.ppl_query'], false);
     expect(queries).toHaveLength(1);
-    expect(queries[0].rawText).toBe('source=metrics | stats avg(cpu)');
+    expect(queries[0].rawText).toBe('source=test_metrics | stats avg(cpu)');
 
     const span: Span = {
       start: { line: 0, col: 0, offset: 0 },
@@ -127,11 +127,11 @@ describe('JSON Extractor', () => {
   });
 
   it('does not offer approximate positions for escaped JSON strings', () => {
-    const [query] = extractQueries('{"query":"source=logs\\n| stat count()"}', 'json', ['query'], false);
+    const [query] = extractQueries('{"query":"source=test_logs\\n| stat count()"}', 'json', ['query'], false);
     expect(query.rawText).toContain('\n');
     expect(query.sourceMap.translate({
-      start: { line: 1, col: 2, offset: 14 },
-      end: { line: 1, col: 6, offset: 18 },
+      start: { line: 1, col: 2, offset: 19 },
+      end: { line: 1, col: 6, offset: 23 },
     })).toBeUndefined();
   });
 });
@@ -141,7 +141,7 @@ describe('TOML Extractor', () => {
     const toml = `[transforms.filter_logs]
 type = "filter"
 query = """
-source=app_logs
+source=test_app_logs
 | where level == 'ERROR'
 """
 `;
@@ -149,7 +149,7 @@ source=app_logs
     const queries = extractQueries(toml, 'toml', ['transforms.*.query'], false);
     expect(queries).toHaveLength(1);
     expect(queries[0].keyPath).toBe('transforms.filter_logs.query');
-    expect(queries[0].rawText).toContain('source=app_logs');
+    expect(queries[0].rawText).toContain('source=test_app_logs');
   });
 
   it('handles malformed TOML gracefully', () => {
@@ -159,8 +159,8 @@ source=app_logs
   });
 
   it('does not map escaped TOML basic strings as raw positions', () => {
-    const [query] = extractQueries('query = "source=logs\\n| stat count()"', 'toml', ['query'], false);
-    expect(query.rawText).toBe('source=logs\n| stat count()');
+    const [query] = extractQueries('query = "source=test_logs\\n| stat count()"', 'toml', ['query'], false);
+    expect(query.rawText).toBe('source=test_logs\n| stat count()');
     expect(query.sourceMap.translate({
       start: { line: 0, col: 0, offset: 0 },
       end: { line: 0, col: 6, offset: 6 },
@@ -168,7 +168,7 @@ source=app_logs
   });
 
   it('maps indented TOML multiline text at its original column', () => {
-    const text = '[section]\nquery = """\n  source=logs\n  | stat count()\n"""\n';
+    const text = '[section]\nquery = """\n  source=test_logs\n  | stat count()\n"""\n';
     const [query] = extractQueries(text, 'toml', ['section.query'], false);
     const start = query.rawText.indexOf('stat');
     const mapped = query.sourceMap.translate({
@@ -181,10 +181,10 @@ source=app_logs
   it('correctly advances past multiline string and continues parsing subsequent keys', () => {
     const toml = `[section]
 query1 = """
-source=app_logs
+source=test_app_logs
 | where level == 'ERROR'
 """
-query2 = "source=audit | stats count()"
+query2 = "source=test_audit | stats count()"
 `;
     const queries = extractQueries(toml, 'toml', ['section.*'], false);
     expect(queries).toHaveLength(2);
@@ -195,15 +195,15 @@ query2 = "source=audit | stats count()"
   it('extracts single-line queries with varied indentation and whitespace around equals', () => {
     const toml = `
     [telemetry]
-      nested.key   =   "source=metrics | head 5"
-      other_key='source=events | where code == 200'
+      nested.key   =   "source=test_metrics | head 5"
+      other_key='source=test_events | where code == 200'
 `;
     const queries = extractQueries(toml, 'toml', ['telemetry.*'], false);
     expect(queries).toHaveLength(2);
     expect(queries[0].keyPath).toBe('telemetry.nested.key');
-    expect(queries[0].rawText).toBe('source=metrics | head 5');
+    expect(queries[0].rawText).toBe('source=test_metrics | head 5');
     expect(queries[1].keyPath).toBe('telemetry.other_key');
-    expect(queries[1].rawText).toBe('source=events | where code == 200');
+    expect(queries[1].rawText).toBe('source=test_events | where code == 200');
   });
 });
 
@@ -254,8 +254,8 @@ describe('User-Defined Key Pattern Resolution', () => {
 
   it('extracts queries with resolved key patterns in structured documents', () => {
     const yaml = `
-custom_key: "source=logs | where code == 200"
-default_query: "source=legacy | stats count()"
+custom_key: "source=test_logs | where code == 200"
+default_query: "source=test_legacy | stats count()"
 `;
 
     // With defaults overridden: only custom_key should be extracted
@@ -267,6 +267,6 @@ default_query: "source=legacy | stats count()"
     const queries = extractQueries(yaml, 'yaml', effectivePatterns, false);
     expect(queries).toHaveLength(1);
     expect(queries[0].keyPath).toBe('custom_key');
-    expect(queries[0].rawText).toBe('source=logs | where code == 200');
+    expect(queries[0].rawText).toBe('source=test_logs | where code == 200');
   });
 });

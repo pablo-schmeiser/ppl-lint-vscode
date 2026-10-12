@@ -6,7 +6,7 @@ trigger:
   schedule: "*/5 * * * *"
   condition:
     query: |
-      source=http_access_logs
+      source=test_http_access_logs
       | where status >= 500
       | stats count() by host
       | where count > 50

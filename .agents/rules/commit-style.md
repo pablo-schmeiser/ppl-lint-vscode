@@ -14,6 +14,7 @@ Format:
 [optional footer(s)]
 
 **Allowed Types**:
+
 - `feat`: A new feature
 - `fix`: A bug fix
 - `docs`: Documentation only changes

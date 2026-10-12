@@ -25,7 +25,7 @@ describe('Diagnostic Rules Catalog', () => {
   const linter = new PplLinter();
 
   it('PPL001: reports syntax errors', () => {
-    const query = 'source=logs | where (status == 200';
+    const query = 'source=test_logs | where (status == 200';
     const diagnostics = linter.lint(query);
 
     const ppl001 = diagnostics.filter((d) => d.code === 'PPL001');
@@ -34,7 +34,7 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('PPL001: reports unclosed string literal and unclosed backtick identifier', () => {
-    const queryStr = "source=logs | where name = 'unclosed";
+    const queryStr = "source=test_logs | where name = 'unclosed";
     const diagsStr = linter.lint(queryStr);
     const ppl001Str = diagsStr.find(
       (d) => d.code === 'PPL001' && d.message.includes('Unclosed string literal')
@@ -42,7 +42,7 @@ describe('Diagnostic Rules Catalog', () => {
     expect(ppl001Str).toBeDefined();
     expect(ppl001Str?.severity).toBe('error');
 
-    const queryIdent = 'source=logs | where `unclosed_col == 1';
+    const queryIdent = 'source=test_logs | where `unclosed_col == 1';
     const diagsIdent = linter.lint(queryIdent);
     const ppl001Ident = diagsIdent.find(
       (d) => d.code === 'PPL001' && d.message.includes('Unclosed identifier')
@@ -62,7 +62,7 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('PPL003: reports unknown command and suggests closest match', () => {
-    const query = 'source=logs | stat count()';
+    const query = 'source=test_logs | stat count()';
     const diagnostics = linter.lint(query);
 
     const ppl003 = diagnostics.find((d) => d.code === 'PPL003');
@@ -73,7 +73,7 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('PPL004: reports invalid arguments for standard commands', () => {
-    const query = 'source=logs | sort';
+    const query = 'source=test_logs | sort';
     const diagnostics = linter.lint(query);
 
     const ppl004 = diagnostics.find((d) => d.code === 'PPL004');
@@ -83,7 +83,7 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('PPL005: reports unknown function in expression/aggregation', () => {
-    const query = 'source=logs | stats unknow_func(bytes)';
+    const query = 'source=test_logs | stats unknow_func(bytes)';
     const diagnostics = linter.lint(query);
 
     const ppl005 = diagnostics.find((d) => d.code === 'PPL005');
@@ -93,13 +93,13 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('checks function calls inside IN lists', () => {
-    const diagnostics = linter.lint('source=logs | where status IN (known_value, unknow_func(status))');
+    const diagnostics = linter.lint('source=test_logs | where status IN (known_value, unknow_func(status))');
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL005')).toBe(true);
     expect(diagnostics.some((diagnostic) => diagnostic.code === 'PPL001')).toBe(false);
   });
 
   it('PPL006: warns when filter is placed after heavy operations (sort/stats/dedup)', () => {
-    const query = 'source=logs | sort bytes | where status == 200';
+    const query = 'source=test_logs | sort bytes | where status == 200';
     const diagnostics = linter.lint(query);
 
     const ppl006 = diagnostics.find((d) => d.code === 'PPL006');
@@ -110,10 +110,10 @@ describe('Diagnostic Rules Catalog', () => {
 
   it('accepts both equality operators in conditions without warnings', () => {
     const queries = [
-      'source=logs | where status = 200',
-      'source=logs | where status == 200',
-      'source=logs | where not (status = 200)',
-      'source=logs | where isnull(status = 200)',
+      'source=test_logs | where status = 200',
+      'source=test_logs | where status == 200',
+      'source=test_logs | where not (status = 200)',
+      'source=test_logs | where isnull(status = 200)',
     ];
 
     for (const query of queries) {
@@ -122,22 +122,22 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('checks eval expressions and numeric head counts', () => {
-    const diagnostics = linter.lint('source=logs | eval score = unknow_func(bytes) | head 0');
+    const diagnostics = linter.lint('source=test_logs | eval score = unknow_func(bytes) | head 0');
     expect(diagnostics.some((d) => d.code === 'PPL005')).toBe(true);
     expect(diagnostics.some((d) => d.code === 'PPL004' && d.message.includes('head'))).toBe(true);
     expect(diagnostics.some((d) => d.code === 'PPL008')).toBe(false);
-    expect(linter.lint('source=logs | eval score = abs(bytes) | head 10').some((d) => d.code === 'PPL008')).toBe(false);
+    expect(linter.lint('source=test_logs | eval score = abs(bytes) | head 10').some((d) => d.code === 'PPL008')).toBe(false);
   });
 
   it('rejects recognized raw stages as unverified, without calling them invalid PPL', () => {
-    const diagnostics = linter.lint("source=logs | grok message '%{IP:client_ip}'");
+    const diagnostics = linter.lint("source=test_logs | grok message '%{IP:client_ip}'");
     expect(diagnostics).toContainEqual(expect.objectContaining({
       code: 'PPL008', severity: 'error',
       message: expect.stringContaining('Validation not implemented'),
     }));
-    expect(linter.lint('source=logs | stat count()').some((d) => d.code === 'PPL008')).toBe(false);
-    expect(new PplLinter({ rules: { PPL008: 'off' } }).lint("source=logs | grok message '%{IP:client_ip}'")).toEqual([]);
-    expect(new PplLinter({ customCommands: ['trendline'] }).lint('source=logs | trendline count()').some((d) => d.code === 'PPL008')).toBe(true);
+    expect(linter.lint('source=test_logs | stat count()').some((d) => d.code === 'PPL008')).toBe(false);
+    expect(new PplLinter({ rules: { PPL008: 'off' } }).lint("source=test_logs | grok message '%{IP:client_ip}'")).toEqual([]);
+    expect(new PplLinter({ customCommands: ['trendline'] }).lint('source=test_logs | trendline count()').some((d) => d.code === 'PPL008')).toBe(true);
   });
 
   it('supports configurable severity levels and disabling rules (off)', () => {
@@ -148,7 +148,7 @@ describe('Diagnostic Rules Catalog', () => {
       },
     });
 
-    const query = 'source=logs | sort bytes | where status = 200 | stats unknow_func(bytes)';
+    const query = 'source=test_logs | sort bytes | where status = 200 | stats unknow_func(bytes)';
     const diagnostics = customLinter.lint(query);
 
     expect(diagnostics.some((d) => d.code === 'PPL006')).toBe(false);
@@ -159,7 +159,7 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('PPL003: supports user-defined customCommands and typo matching', () => {
-    const query = 'source=logs | trendline count()';
+    const query = 'source=test_logs | trendline count()';
     const defaultDiags = linter.lint(query);
     const defaultPpl003 = defaultDiags.find((d) => d.code === 'PPL003');
     expect(defaultPpl003).toBeDefined();
@@ -172,7 +172,7 @@ describe('Diagnostic Rules Catalog', () => {
     expect(customDiags.some((d) => d.code === 'PPL003')).toBe(false);
 
     // Typo matching with custom command
-    const typoQuery = 'source=logs | trendlin count()';
+    const typoQuery = 'source=test_logs | trendlin count()';
     const typoDiags = customLinter.lint(typoQuery);
     const typoPpl003 = typoDiags.find((d) => d.code === 'PPL003');
     expect(typoPpl003).toBeDefined();
@@ -181,7 +181,7 @@ describe('Diagnostic Rules Catalog', () => {
   });
 
   it('PPL005: supports user-defined customFunctions and typo matching', () => {
-    const query = 'source=logs | stats custom_score(bytes)';
+    const query = 'source=test_logs | stats custom_score(bytes)';
     const defaultDiags = linter.lint(query);
     const defaultPpl005 = defaultDiags.find((d) => d.code === 'PPL005');
     expect(defaultPpl005).toBeDefined();
@@ -194,7 +194,7 @@ describe('Diagnostic Rules Catalog', () => {
     expect(customDiags.some((d) => d.code === 'PPL005')).toBe(false);
 
     // Typo matching with custom function
-    const typoQuery = 'source=logs | stats custom_scor(bytes)';
+    const typoQuery = 'source=test_logs | stats custom_scor(bytes)';
     const typoDiags = customLinter.lint(typoQuery);
     const typoPpl005 = typoDiags.find((d) => d.code === 'PPL005');
     expect(typoPpl005).toBeDefined();
@@ -204,7 +204,7 @@ describe('Diagnostic Rules Catalog', () => {
 });
 
 describe('OpenSearch version selection', () => {
-  const query = 'source=logs | head 10';
+  const query = 'source=test_logs | head 10';
 
   it('uses 3.5 as the baseline and warns for newer unverified versions', () => {
     expect(new PplLinter({ openSearchVersion: '3.5.0' }).lint(query)).toEqual([]);

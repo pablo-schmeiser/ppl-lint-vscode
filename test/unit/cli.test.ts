@@ -32,7 +32,7 @@ async function invoke(args: string[], runtime: Partial<CliRuntime> = {}): Promis
 
 describe('PPL CLI', () => {
   it('lints a query supplied directly and returns a failing status for errors', async () => {
-    const result = await invoke(['--query', 'source=logs | nonsense']);
+    const result = await invoke(['--query', 'source=test_logs | nonsense']);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('<query 1>:1:');
@@ -41,7 +41,7 @@ describe('PPL CLI', () => {
   });
 
   it('reports a clean text-mode run instead of returning empty output', async () => {
-    const result = await invoke(['--query', 'source=logs | head 5']);
+    const result = await invoke(['--query', 'source=test_logs | head 5']);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('Checked 1 PPL query: no diagnostics.\n');
@@ -78,7 +78,7 @@ describe('PPL CLI', () => {
           "rules": { "PPL003": "warning", "PPL008": "off" }
         },
         "cli": {
-          "queries": ["source=logs | nonsense", "source=logs | custompipe"],
+          "queries": ["source=test_logs | nonsense", "source=test_logs | custompipe"],
           "outputFormat": "json"
         }
       }`);
@@ -92,8 +92,8 @@ describe('PPL CLI', () => {
       expect(configuredDiagnostics.some(({ code }) => code === 'PPL008')).toBe(false);
 
       await writeFile(yamlPath, [
-        'ppl_query: "source=logs | nonsense"',
-        'query: "source=logs | nonsense"',
+        'ppl_query: "source=test_logs | nonsense"',
+        'query: "source=test_logs | nonsense"',
       ].join('\n'));
       const embeddedResult = await invoke(['--config', configPath, yamlPath]);
       const embeddedDiagnostics = JSON.parse(embeddedResult.stdout) as Array<Record<string, unknown>>;
@@ -102,7 +102,7 @@ describe('PPL CLI', () => {
 
       const overrideResult = await invoke([
         '--config', configPath,
-        '--query', 'source=logs | head 1',
+        '--query', 'source=test_logs | head 1',
         '--opensearch-version', '3.4',
         '--format', 'json',
       ]);
@@ -122,8 +122,8 @@ describe('PPL CLI', () => {
         pplLinter: {
           openSearchUrl: 'https://search.example.test',
           openSearchUsername: 'reader',
-          openSearchTemplateNames: ['auditd-*', 'syslog-*'],
-          openSearchMappingIndexes: ['mam_*'],
+          openSearchTemplateNames: ['test-audit-*', 'test_syslog-*'],
+          openSearchMappingIndexes: ['test_*'],
         },
         cli: { saveOpenSearchCache: './schema-cache' },
       }));
@@ -134,7 +134,7 @@ describe('PPL CLI', () => {
           ok: true,
           status: 200,
           json: async () => url.endsWith('/_mapping')
-            ? { mam_users: { mappings: { properties: { id: { type: 'keyword' } } } } }
+            ? { test_users: { mappings: { properties: { id: { type: 'keyword' } } } } }
             : { index_templates: [] },
         };
       };
@@ -147,9 +147,9 @@ describe('PPL CLI', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe(`Saved OpenSearch cache to ${cacheDirectory}.\n`);
       expect(requests.map(({ url }) => url)).toEqual([
-        'https://search.example.test/_index_template/auditd-*',
-        'https://search.example.test/_index_template/syslog-*',
-        'https://search.example.test/mam_*/_mapping',
+        'https://search.example.test/_index_template/test-audit-*',
+        'https://search.example.test/_index_template/test_syslog-*',
+        'https://search.example.test/test_*/_mapping',
       ]);
       expect(requests.every(({ authorization }) =>
         authorization === `Basic ${Buffer.from('reader:config-test-password').toString('base64')}`
@@ -163,8 +163,8 @@ describe('PPL CLI', () => {
 
   it('scans standalone and embedded queries in a directory', async () => {
     await withTempDirectory(async (directory) => {
-      await writeFile(path.join(directory, 'query.ppl'), 'source=logs | nonsense\n');
-      await writeFile(path.join(directory, 'alert.yaml'), 'rule:\n  query: |\n    source=logs\n    | nonsense\n');
+      await writeFile(path.join(directory, 'query.ppl'), 'source=test_logs | nonsense\n');
+      await writeFile(path.join(directory, 'alert.yaml'), 'rule:\n  query: |\n    source=test_logs\n    | nonsense\n');
       await writeFile(path.join(directory, 'notes.txt'), 'not PPL input\n');
 
       const result = await invoke([directory]);
@@ -178,7 +178,7 @@ describe('PPL CLI', () => {
 
   it('reads piped stdin automatically as a PPL query', async () => {
     const input = (async function* () {
-      yield 'source=logs | nonsense';
+      yield 'source=test_logs | nonsense';
     })();
     const result = await invoke([], { stdin: input, stdinIsTty: false });
 
@@ -193,7 +193,7 @@ describe('PPL CLI', () => {
       const record = {
         id: 'query-42',
         family: 'unknown-command',
-        query: 'source=logs | nonsense',
+        query: 'source=test_logs | nonsense',
         verdict: { kind: 'rejected' },
         diagnostics: [],
       };
@@ -223,10 +223,10 @@ describe('PPL CLI', () => {
       await writeFile(templatePath, [
         'kind: OpensearchIndexTemplate',
         'metadata:',
-        '  name: logs-template',
+        '  name: test_logs-template',
         'spec:',
         '  indexPatterns:',
-        '    - logs-*',
+        '    - test_logs-*',
         '  template:',
         '    mappings:',
         '      properties:',
@@ -238,7 +238,7 @@ describe('PPL CLI', () => {
       const result = await invoke([
         '--format', 'json',
         '--template', templatePath,
-        '--query', 'source=logs-2026 | fields host',
+        '--query', 'source=test_logs-2026 | fields host',
       ]);
 
       expect(result.exitCode).toBe(0);
@@ -252,10 +252,10 @@ describe('PPL CLI', () => {
       await writeFile(templatePath, [
         'kind: OpensearchIndexTemplate',
         'metadata:',
-        '  name: logs-template',
+        '  name: test_logs-template',
         'spec:',
         '  indexPatterns:',
-        '    - logs-*',
+        '    - test_logs-*',
         '  template:',
         '    mappings:',
         '      properties:',
@@ -266,7 +266,7 @@ describe('PPL CLI', () => {
 
       const result = await invoke([
         '--template', templatePath,
-        '--query', 'source=logs-2026 | fields host',
+        '--query', 'source=test_logs-2026 | fields host',
       ], {
         env: {
           PPL_OPENSEARCH_USERNAME: 'reader',
@@ -283,8 +283,8 @@ describe('PPL CLI', () => {
 
   it('still requires a URL when remote selections are requested', async () => {
     const result = await invoke([
-      '--opensearch-template', 'logs-*',
-      '--query', 'source=logs | head 1',
+      '--opensearch-template', 'test_logs-*',
+      '--query', 'source=test_logs | head 1',
     ], {
       env: { PPL_OPENSEARCH_USERNAME: 'reader' },
     });
@@ -301,12 +301,12 @@ describe('PPL CLI', () => {
         ok: true,
         status: 200,
         json: async () => url.endsWith('/_mapping')
-          ? { 'logs-2026': { mappings: { properties: { host: { type: 'keyword' } } } } }
+          ? { 'test_logs-2026': { mappings: { properties: { host: { type: 'keyword' } } } } }
           : {
             index_templates: [{
-              name: 'logs-template',
+              name: 'test_logs-template',
               index_template: {
-                index_patterns: ['logs-*'],
+                index_patterns: ['test_logs-*'],
                 template: { mappings: { properties: { host: { type: 'keyword' } } } },
               },
             }],
@@ -318,8 +318,8 @@ describe('PPL CLI', () => {
       '--format', 'json',
       '--opensearch-url', 'https://search.example.test',
       '--opensearch-username', 'reader',
-      '--mapping-index', 'logs-*',
-      '--query', 'source=logs-2026 | fields host',
+      '--mapping-index', 'test_logs-*',
+      '--query', 'source=test_logs-2026 | fields host',
     ], {
       env: { PPL_OPENSEARCH_PASSWORD: 'not-for-output' },
       fetcher,
@@ -329,7 +329,7 @@ describe('PPL CLI', () => {
     expect(JSON.parse(result.stdout)).toEqual([]);
     expect(requests.map((request) => request.url)).toEqual([
       'https://search.example.test/_index_template',
-      'https://search.example.test/logs-*/_mapping',
+      'https://search.example.test/test_logs-*/_mapping',
     ]);
     expect(requests[0].authorization).toBe(`Basic ${Buffer.from('reader:not-for-output').toString('base64')}`);
     expect(result.stdout + result.stderr).not.toContain('not-for-output');
@@ -343,15 +343,15 @@ describe('PPL CLI', () => {
         status: 200,
         json: async () => url.endsWith('/_mapping')
           ? {
-            'logs-2026': {
+            'test_logs-2026': {
               mappings: { properties: { mapped_host: { type: 'keyword' } } },
             },
           }
           : {
             index_templates: [{
-              name: 'logs-template',
+              name: 'test_logs-template',
               index_template: {
-                index_patterns: ['logs-*'],
+                index_patterns: ['test_logs-*'],
                 template: { mappings: { properties: { template_host: { type: 'keyword' } } } },
               },
             }],
@@ -360,8 +360,8 @@ describe('PPL CLI', () => {
 
       const onlineResult = await invoke([
         '--opensearch-url', 'https://search.example.test',
-        '--opensearch-template', 'logs-*',
-        '--mapping-index', 'logs-*',
+        '--opensearch-template', 'test_logs-*',
+        '--mapping-index', 'test_logs-*',
         '--save-opensearch-cache', cacheDirectory,
       ], { fetcher, stdinIsTty: false });
 
@@ -372,13 +372,13 @@ describe('PPL CLI', () => {
       expect(JSON.parse(cacheText)).toMatchObject({
         format: 'ppl-lint-opensearch-cache',
         version: 1,
-        mappings: [{ selector: 'logs-*' }],
+        mappings: [{ selector: 'test_logs-*' }],
       });
 
       const offlineResult = await invoke([
         '--format', 'json',
         '--template', cacheDirectory,
-        '--query', 'source=logs-2026 | fields mapped_host',
+        '--query', 'source=test_logs-2026 | fields mapped_host',
       ]);
 
       expect(offlineResult.exitCode).toBe(0);
